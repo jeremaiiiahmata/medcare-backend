@@ -1,7 +1,7 @@
 from rest_framework_simplejwt.tokens import Token
 from setuptools.config.pyprojecttoml import validate
 
-from api.models import User, Profile
+from api.models import User, Profile, Patient
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, AuthUser
 from rest_framework import serializers
@@ -19,6 +19,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
 
         token['first_name'] = user.profile.first_name
+        token['username'] = user.username
         token['middle_name'] = user.profile.middle_name
         token['last_name'] = user.profile.last_name
         token['specialization'] = user.profile.specialization
@@ -60,3 +61,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.save() #Saves the user
 
         return user
+
+class PatientSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
+
+    class Meta :
+        model = Patient
+        fields = ['first_name', 'last_name', 'blood_type', 'email', 'contact_number',
+                  'address', 'age', 'weight', 'gender', 'id_number', 'allergies']

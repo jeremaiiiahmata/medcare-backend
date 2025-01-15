@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.db.models.signals import post_save
@@ -40,3 +41,22 @@ def saveUserProfile(sender, instance, **kwargs):
 
 post_save.connect(createUserProfile, sender=User)
 post_save.connect(saveUserProfile, sender=User)
+
+class Patient(models.Model):
+    doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
+    image = models.ImageField(upload_to="patient_images/", null=True, blank=True)  # Allow image to be optional
+    first_name = models.CharField(max_length=75)
+    middle_name = models.CharField(max_length=50, null=True, blank=True)  # Optional middle name
+    last_name = models.CharField(max_length=50)
+    blood_type = models.CharField(max_length=3, null=True, blank=True)  # Validate blood types with choices
+    email = models.EmailField(max_length=75, null=True, blank=True)  # Use EmailField for email validation
+    contact_number = models.CharField(max_length=15, null=True, blank=True)  # Set a realistic length for phone numbers
+    address = models.TextField(null=True, blank=True)  # Use TextField for potentially longer addresses
+    age = models.PositiveIntegerField(null=True, blank=True)  # Age should be positive
+    weight = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)  # Specify max_digits and decimal_places
+    gender = models.CharField(max_length=10, null=True, blank=True)  # Use choices for consistency
+    id_number = models.CharField(max_length=100, unique=True, null=True, blank=True)  # Add unique constraint for IDs
+    allergies = models.TextField(null=True, blank=True)  # Already good for optional text
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} (Doctor: {self.doctor.username})"
