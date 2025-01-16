@@ -1,7 +1,7 @@
 from rest_framework_simplejwt.tokens import Token
 from setuptools.config.pyprojecttoml import validate
 
-from api.models import User, Profile, Patient, Prescription, PreAssessment, PrescriptionItem
+from api.models import User, Profile, Patient
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, AuthUser
 from rest_framework import serializers
@@ -62,33 +62,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         return user
 
-class ProfileSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Profile
-        fields = ['id', 'first_name', 'middle_name', 'last_name', 'specialization', 'contact_number', 'office_address', 'bio', 'image']
-
 class PatientSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
 
     class Meta :
         model = Patient
         fields = ['first_name', 'last_name', 'blood_type', 'email', 'contact_number',
                   'address', 'age', 'weight', 'gender', 'id_number', 'allergies']
-
-class PrescriptionSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
-
-    class Meta :
-        model = Prescription
-        fields = ['doctor', 'patient', 'date_created']
-
-class PrescriptionItemSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
-
-    class Meta :
-        model = PrescriptionItem
-        fields = ['prescription', 'amount', 'drug_name', 'dosage', 'frequency', 'notes']
-
-class PreassessmentSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
-
-    class Meta :
-        model = PreAssessment
-        fields = ['doctor', 'patient', 'date_created', 'heart_rate', 'temperature', 'complaint', 'notes', 'recommendations', 'symptoms']
