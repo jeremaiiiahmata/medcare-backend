@@ -60,3 +60,39 @@ class Patient(models.Model):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} (Doctor: {self.doctor.username})"
+
+class Prescription(models.Model):
+    doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
+    title = models.CharField(max_length=50, blank=False, default=f"Prescription")
+    description = models.TextField(null=True, blank=True)
+    date_created = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Title : {self.title} | {self.patient.first_name} {self.patient.last_name} (Created: {self.date_created})"
+
+class PrescriptionItem(models.Model):
+    prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE)
+    amount = models.CharField(max_length=50, blank=False)
+    drug_name = models.CharField(max_length=50, blank=False)
+    dosage = models.CharField(max_length=20, blank=False)
+    frequency = models.CharField(max_length=100, blank=False)
+    notes = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"ID:{self.id} | [Drug Name : {self.drug_name} | Drug Amount : {self.amount}] - Prescription ID : {self.prescription.id} "
+
+class PreAssessment(models.Model):
+    doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
+    date_created = models.DateField(auto_now_add=True)
+    heart_rate = models.CharField(max_length=10, null=True, blank=True)
+    temperature = models.CharField(max_length=20, null=True, blank=True)
+    complaint = models.TextField(null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    recommendations = models.TextField(null=True, blank=True)
+    symptoms = models.TextField(null=True, blank=True)
+
+
+    def __str__(self):
+        return f"{self.patient} {self.date_created}"
