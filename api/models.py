@@ -64,10 +64,12 @@ class Patient(models.Model):
 class Prescription(models.Model):
     doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
+    title = models.CharField(max_length=50, blank=False, default=f"Prescription")
+    description = models.TextField(null=True, blank=True)
     date_created = models.DateField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.patient.first_name} {self.patient.last_name} (Created: {self.date_created})"
+        return f"Title : {self.title} | {self.patient.first_name} {self.patient.last_name} (Created: {self.date_created})"
 
 class PrescriptionItem(models.Model):
     prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE)

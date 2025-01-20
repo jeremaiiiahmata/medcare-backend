@@ -1,5 +1,7 @@
 from django.core.serializers import serialize
 from django.shortcuts import render
+from rest_framework.generics import get_object_or_404
+
 from api.models import Profile, User, Patient, Prescription, PrescriptionItem
 from api.serializers import UserSerializer, MyTokenObtainPairSerializer, RegisterSerializer, PatientSerializer, \
     PrescriptionSerializer, PreassessmentSerializer, ProfileSerializer, PrescriptionItemSerializer
@@ -19,25 +21,18 @@ class RegisterView(generics.CreateAPIView): #creates a user
     permission_classes = (AllowAny,) #Allows everyone to access this view
     serializer_class = RegisterSerializer #sets the serializer class to the RegisterSerializer we created
 
-# GET : Get the user's details
+# GET : Fetch the dashboard
 @api_view(['GET']) #defining the methods
 @permission_classes([IsAuthenticated]) #defining the permission in function based classes
 def dashboard(request):
 
     user_id = request.user.id
 
-    if request.method == "GET":
-
-        response = f"Hey {request.user}, This is the GET response with authentication. Your ID is {user_id}"
+    try :
+        response = f"Hey {request.user}, Your ID is : {user_id}"
         return Response({'response' : response}, status=status.HTTP_200_OK)
-
-    elif request.method == "POST" :
-
-        text = request.POST.get("text") #Gets the request with text (parang req.body.text in node.js)
-        text = f"Hey, {request.user}, your text is { text }"
-        return Response({'response' : text}, status=status.HTTP_200_OK)
-
-    return Response({'errorMessage' : 'Error in request'}, status=status.HTTP_400_BAD_REQUEST)
+    except:
+        return Response({'errorMessage' : 'error in request'}, status=status.HTTP_400_BAD_REQUEST)
 
 # GET : Get the user's details
 @api_view(['GET']) #defining the methods
@@ -57,58 +52,76 @@ def profile(request):
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def createPatient(request):
 
-    if request.method == 'POST':
+    user_ID = request.user.id
 
-        user_ID = request.user.id
+    # Ensure the doctor exists
+    doctor = User.objects.get(id=user_ID)
+    serializer = PatientSerializer(data=request.data)
 
-        # Ensure the doctor exists
-        doctor = User.objects.get(id=user_ID)
+    try:
+        # Validate the data
+        if serializer.is_valid():
+            serializer.save(doctor=doctor)  # Save the patient with the associated doctor
+            return Response({
+                "status": "success",
+                "data": serializer.data
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = PatientSerializer(data=request.data)
-
-        try:
-            # Validate the data
-            if serializer.is_valid():
-                serializer.save(doctor=doctor)  # Save the patient with the associated doctor
-                return Response({
-                    "status": "success",
-                    "data": serializer.data
-                }, status=status.HTTP_201_CREATED)
-            else:
-                return Response({
-                    "status": "error",
-                    "errors": serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-        except User.DoesNotExist:
-            return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
 
 # GET: Query Patients by Doctor
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def getPatients(request):
 
-    if request.method == 'GET':
+    doctor_id = request.user.id  # Use query params for filtering
 
-        doctor_id = request.query_params.get('user_id')  # Use query params for filtering
-        if not doctor_id:
-            return Response({"status": "error", "message": "Doctor ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+    if not doctor_id:
+        return Response({"status": "error", "message": "Doctor ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            # Ensure the doctor exists
-            doctor = User.objects.get(id=doctor_id)
+    try:
+        # Ensure the doctor exists
+        doctor = User.objects.get(id=doctor_id)
 
-            # Get all patients for the doctor
-            patients = Patient.objects.filter(doctor=doctor).values(
-                'id', 'first_name', 'last_name', 'blood_type', 'email', 'contact_number', 'address', 'age', 'weight', 'gender', 'id_number', 'allergies'
-            )
+        # Get all patients for the doctor
+        patients = Patient.objects.filter(doctor=doctor).values(
+            'id', 'first_name', 'last_name', 'blood_type', 'email', 'contact_number', 'address', 'age', 'weight', 'gender', 'id_number', 'allergies'
+        )
 
-            return Response({"status": "success", "data": list(patients)}, status=status.HTTP_200_OK)
+        return Response({"status": "success", "data": list(patients)}, status=status.HTTP_200_OK)
 
-        except User.DoesNotExist:
-            return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+# GET: View Specific Patient
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def getPatientsByID(request, id):
+
+    doctorID = request.user.id
+
+    try:
+        # Ensure the doctor exists
+        patient = get_object_or_404(Patient, id=id, doctor_id=doctorID) #Filters the patient with only the current logged-in user
+        serializer = PatientSerializer(patient)
+
+        if patient.doctor.id == doctorID :
+            return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+        else :
+            return Response({"status" : "error", "message" : "patient and doctor id does not match."}, status=status.HTTP_400_BAD_REQUEST)
+
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # POST: Create Prescription of Patient
 @api_view(['POST'])
@@ -123,8 +136,8 @@ def createPrescrption(request):
 
     try:
         # Fetch doctor (logged-in user) and patient from the database
-        doctor = User.objects.get(id=user_id)
-        patient = Patient.objects.get(id=patient_id)
+        doctor = User.objects.get(id=user_id) #Gets the current doctor's information
+        patient = Patient.objects.get(id=patient_id) #Gets the patient based on ID from params
 
         # Create the Prescription instance
         prescription = Prescription(doctor=doctor, patient=patient)
@@ -223,3 +236,22 @@ def createPreassessment(request):
 
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# POST: Create Prescription of Patient
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
+
+   try:
+
+       prescription = PrescriptionItem.objects.filter(prescription=id).values(
+            'id', 'dosage', 'amount', 'drug_name'
+        )
+
+       return Response({"status" : "success", "data" : list(prescription)})
+
+   except User.DoesNotExist:
+       return Response({"status": "error", "message": "Doctor or Patient not found."}, status=status.HTTP_404_NOT_FOUND)
+
+   except Exception as e:
+       return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
