@@ -15,4 +15,5 @@ urlpatterns = [
     path('create-prescription', views.createPrescrption), # creates a prescription
     path('create-prescription/add-item', views.createPrescrptionItem), # creates an item in the prescription
     path('create-preassessment', views.createPreassessment), # creates a pre-assessment
+    path("generate-report/", views.ChatbotAPIView.as_view(), name="chat"),
 ]
