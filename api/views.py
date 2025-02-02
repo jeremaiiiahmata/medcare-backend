@@ -1,15 +1,17 @@
 from django.core.serializers import serialize
 from django.shortcuts import render
 from rest_framework.generics import get_object_or_404
-
+from rest_framework.views import APIView
 from api.models import Profile, User, Patient, Prescription, PrescriptionItem
 from api.serializers import UserSerializer, MyTokenObtainPairSerializer, RegisterSerializer, PatientSerializer, \
-    PrescriptionSerializer, PreassessmentSerializer, ProfileSerializer, PrescriptionItemSerializer
+    PrescriptionSerializer, PreassessmentSerializer, ProfileSerializer, PrescriptionItemSerializer, ChatbotSerializer
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+import os
+import openai
 
 # Create your views here.
 
@@ -255,3 +257,97 @@ def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
 
    except Exception as e:
        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Load OpenAI API Key from environment variables
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+class ChatbotAPIView(APIView):
+    def post(self, request):
+
+        # Fetch the prescription details
+        try:
+            prescription = Prescription.objects.get(id=1) #Gets the prescription container based on ID provided
+            print(prescription)
+            patient = Patient.objects.get(id=prescription.patient.id) #Gets the patient based on the patient ID connected to the prescription container
+            print(patient)
+            items = PrescriptionItem.objects.filter(prescription=prescription) #Gets the prescription items under the prescription container
+            print(items)
+        except Prescription.DoesNotExist:
+            return Response({"error": "Prescription not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        patient_info = {
+            "age": patient.age,
+            "weight": f"{patient.weight} kg",
+            "medical_conditions": patient.allergies  #Assuming allergies is stored as a text field
+        }
+
+        prescribed_medications = [
+            {
+                "medicine": item.drug_name,
+                "dosage": item.dosage,
+                "frequency": item.frequency,
+                "amount": item.amount
+            } for item in items
+        ]
+
+        # ✅ Fix: Generate drug interactions properly from database
+        # interactions = []
+        # for i, item1 in enumerate(items):
+        #     for j, item2 in enumerate(items):
+        #         if i >= j:
+        #             continue
+        #         interaction = DrugInteraction.objects.filter(
+        #             drug_1=item1.drug_name, drug_2=item2.drug_name
+        #         ).first()
+        #         if interaction:
+        #             interactions.append({
+        #                 "drug_1": interaction.drug_1,
+        #                 "drug_2": interaction.drug_2,
+        #                 "description": interaction.description,
+        #                 "severity": interaction.severity
+        #             })
+        #
+        # potential_interactions = interactions if interactions else "No major drug interactions detected."
+
+        prompt = f"""
+                You are a medical AI specializing in analyzing prescriptions. Your task is to:
+                - Detect potential drug-drug interactions.
+                - Recommend dosage adjustments if necessary.
+                - Provide a final recommendation based on the patient's medical conditions.
+
+                Here is the prescription information:
+
+                Patient Information:
+                - Age: {patient_info["age"]}
+                - Weight: {patient_info["weight"]}
+                - Medical Conditions: {patient_info["medical_conditions"]}
+
+                Prescribed Medications:
+                {prescribed_medications}
+
+
+                Now, analyze the above information and return a structured JSON output:
+                - "potential_drug_interactions": List any potential issues based on known drug interactions.
+                - "dosage_adjustment_recommendations": Suggest adjustments if needed.
+                - "final_recommendation": A final summary of whether the prescription is safe or if modifications are necessary.
+                """
+
+
+        try:
+            # ✅ Fix: Use the new OpenAI SDK format
+            client = openai.OpenAI(api_key=openai.api_key)
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",  # or "gpt-3.5-turbo"
+                messages=[
+                    {"role": "system", "content": "You are a medical AI that generates structured prescription analysis reports. Always return the response in a valid JSON format."},
+                    {"role": "user", "content": str(prompt)}
+                ],
+                temperature=0,
+                top_p=1,
+                max_tokens = 500
+            )
+            chatbot_reply = response.choices[0].message.content
+            return Response({"reply": chatbot_reply}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

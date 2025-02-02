@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 from datetime import timedelta
 from pathlib import Path
+import environ
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +28,13 @@ SECRET_KEY = 'django-insecure-ibb&o=%)5y-pz_gbs!luk1m7i_(k%$nom(=2w4-m7^wic@2iy-
 DEBUG = True
 
 ALLOWED_HOSTS = []
+
+# Initialize environment variables
+env = environ.Env()
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
+
+# Load OpenAI API Key
+OPENAI_API_KEY = env("OPENAI_API_KEY")
 
 
 # Application definition
