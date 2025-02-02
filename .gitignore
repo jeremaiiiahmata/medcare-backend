@@ -1,0 +1,37 @@
+# Ignore environment variables & API keys
+.env
+
+# Ignore Python cache & compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore Virtual Environment (venv)
+venv/
+*.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Ignore Database Files
+*.sqlite3
+db.sqlite3
+
+# Ignore IDE Files
+.vscode/
+.idea/
+*.iml
+
+# Ignore Logs
+logs/
+*.log
+
+# Ignore Django Static and Media Files
+staticfiles/
+media/
+
+# Ignore local settings (if you have a settings_local.py)
+settings_local.py
+
+# Ignore Node.js dependencies (if using React frontend)
+node_modules/
