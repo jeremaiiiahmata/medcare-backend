@@ -2,7 +2,7 @@ from django.core.serializers import serialize
 from django.shortcuts import render
 from rest_framework.generics import get_object_or_404
 from rest_framework.views import APIView
-from api.models import Profile, User, Patient, Prescription, PrescriptionItem
+from api.models import Profile, User, Patient, Prescription, PrescriptionItem, DrugInteractions
 from api.serializers import UserSerializer, MyTokenObtainPairSerializer, RegisterSerializer, PatientSerializer, \
     PrescriptionSerializer, PreassessmentSerializer, ProfileSerializer, PrescriptionItemSerializer, ChatbotSerializer
 from rest_framework.decorators import api_view, permission_classes
@@ -103,27 +103,46 @@ def getPatients(request):
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-# GET: View Specific Patient
-@api_view(['GET'])
+# Patients
+@api_view(['GET', 'DELETE'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def getPatientsByID(request, id):
 
     doctorID = request.user.id
 
-    try:
-        # Ensure the doctor exists
-        patient = get_object_or_404(Patient, id=id, doctor_id=doctorID) #Filters the patient with only the current logged-in user
-        serializer = PatientSerializer(patient)
+    # Ensure the doctor exists and get the patient
+    patient = get_object_or_404(Patient, id=id, doctor_id=doctorID)
 
-        if patient.doctor.id == doctorID :
-            return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
-        else :
-            return Response({"status" : "error", "message" : "patient and doctor id does not match."}, status=status.HTTP_400_BAD_REQUEST)
+    if request.method == 'DELETE':
+        patient.delete()
+        return Response({"status": "success", "message": "Patient deleted successfully."}, status=status.HTTP_200_OK)
 
-    except User.DoesNotExist:
-        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    serializer = PatientSerializer(patient)
+    return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+
+# Prescriptions
+@api_view(['GET', 'DELETE'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def getPrescriptions(request, id):
+
+    doctor_id = request.user.id
+
+    # Fetch all prescriptions belonging to the logged-in doctor and the given patient
+    prescriptions = Prescription.objects.filter(patient_id=id, doctor_id=doctor_id)
+
+    if not prescriptions.exists():
+        return Response({"status": "error", "message": "No prescriptions found for this patient."},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        prescriptions.delete()
+        return Response({"status": "success", "message": "Prescriptions deleted successfully."},
+                        status=status.HTTP_200_OK)
+
+    serializer = PrescriptionSerializer(prescriptions, many=True)  # Use many=True for multiple objects
+    return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
 
 # POST: Create Prescription of Patient
 @api_view(['POST'])
@@ -239,7 +258,7 @@ def createPreassessment(request):
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# POST: Create Prescription of Patient
+# GET: GET Prescription Items of Patient
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
@@ -258,6 +277,29 @@ def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
    except Exception as e:
        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# DELETE: Remove Prescription Items of Patient
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def removePrescriptionItem(request, prescription_id, drug_id):
+
+    prescription_item = get_object_or_404(PrescriptionItem, id=drug_id, prescription=prescription_id)
+    prescription_item.delete()
+    return Response({"status": "success", "message": "Prescription item deleted successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def updatePrescriptionItem(request, prescription_id, item_id):
+
+    prescription_item = get_object_or_404(PrescriptionItem, id=item_id, prescription=prescription_id)
+    serializer = PrescriptionItemSerializer(prescription_item, data=request.data, partial=True)
+
+    if serializer.is_valid():
+        serializer.save()
+        return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+    return Response({"status": "error", "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
 # Load OpenAI API Key from environment variables
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -267,11 +309,9 @@ class ChatbotAPIView(APIView):
         # Fetch the prescription details
         try:
             prescription = Prescription.objects.get(id=1) #Gets the prescription container based on ID provided
-            print(prescription)
             patient = Patient.objects.get(id=prescription.patient.id) #Gets the patient based on the patient ID connected to the prescription container
-            print(patient)
             items = PrescriptionItem.objects.filter(prescription=prescription) #Gets the prescription items under the prescription container
-            print(items)
+
         except Prescription.DoesNotExist:
             return Response({"error": "Prescription not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -283,48 +323,36 @@ class ChatbotAPIView(APIView):
 
         prescribed_medications = [
             {
-                "medicine": item.drug_name,
+                "drug_name": item.drug_name,
                 "dosage": item.dosage,
-                "frequency": item.frequency,
-                "amount": item.amount
+                "frequency": item.frequency
             } for item in items
         ]
 
-        # ✅ Fix: Generate drug interactions properly from database
-        # interactions = []
-        # for i, item1 in enumerate(items):
-        #     for j, item2 in enumerate(items):
-        #         if i >= j:
-        #             continue
-        #         interaction = DrugInteraction.objects.filter(
-        #             drug_1=item1.drug_name, drug_2=item2.drug_name
-        #         ).first()
-        #         if interaction:
-        #             interactions.append({
-        #                 "drug_1": interaction.drug_1,
-        #                 "drug_2": interaction.drug_2,
-        #                 "description": interaction.description,
-        #                 "severity": interaction.severity
-        #             })
-        #
-        # potential_interactions = interactions if interactions else "No major drug interactions detected."
+        interactions = self.getDrugInteractions(prescribed_medications)
 
         prompt = f"""
                 You are a medical AI specializing in analyzing prescriptions. Your task is to:
-                - Detect potential drug-drug interactions.
-                - Recommend dosage adjustments if necessary.
+                - Detect **ALL the potential drug-drug interactions in the list given** (not just one).
+                - Recommend dosage adjustments **where needed**.
                 - Provide a final recommendation based on the patient's medical conditions.
 
                 Here is the prescription information:
 
                 Patient Information:
-                - Age: {patient_info["age"]}
                 - Weight: {patient_info["weight"]}
-                - Medical Conditions: {patient_info["medical_conditions"]}
+                - Medical Conditions: Allergic to Nitroglycerin
 
                 Prescribed Medications:
                 {prescribed_medications}
+                
+                **Known Drug Interactions (from database):**
+                {interactions if interactions else "No major drug interactions detected, review the drugs manually."}
 
+                **Instructions:**
+                - List all potential drug interactions and explain their effects.
+                - If a drug dosage needs adjustment, provide a recommendation.
+                - Summarize safety concerns in a structured JSON output.
 
                 Now, analyze the above information and return a structured JSON output:
                 - "potential_drug_interactions": List any potential issues based on known drug interactions.
@@ -337,17 +365,44 @@ class ChatbotAPIView(APIView):
             # ✅ Fix: Use the new OpenAI SDK format
             client = openai.OpenAI(api_key=openai.api_key)
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",  # or "gpt-3.5-turbo"
+                model="chatgpt-4o-latest",  # or "gpt-3.5-turbo"
                 messages=[
-                    {"role": "system", "content": "You are a medical AI that generates structured prescription analysis reports. Always return the response in a valid JSON format."},
+                    {"role": "system", "content": "You are a medical AI that generates structured prescription analysis reports, strictly follows predefined dosage guidelines. Always return the response in a valid JSON format."},
                     {"role": "user", "content": str(prompt)}
                 ],
                 temperature=0,
                 top_p=1,
-                max_tokens = 500
+                max_tokens=1000
+
             )
             chatbot_reply = response.choices[0].message.content
             return Response({"reply": chatbot_reply}, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def getDrugInteractions(self, prescribed_medications):
+        """
+        Retrieves potential drug-drug interactions using Django ORM based on the provided list of medications.
+        """
+        drug_names = [med["drug_name"] for med in prescribed_medications]
+        interactions = DrugInteractions.objects.filter(
+            drug_a__in=drug_names, drug_b__in=drug_names
+        )
+
+        if not interactions.exists():
+            return "No major drug interactions detected."
+
+        return [
+            {
+                "drug_a": interaction.drug_a,
+                "drug_b": interaction.drug_b,
+                "severity": interaction.severity,
+                "description": interaction.description,
+                "management": interaction.management,
+                "dosage": next((med["dosage"] for med in prescribed_medications if
+                                med["drug_name"] in [interaction.drug_a, interaction.drug_b]), None),
+                "frequency": next((med["frequency"] for med in prescribed_medications if
+                                   med["drug_name"] in [interaction.drug_a, interaction.drug_b]), None),
+            } for interaction in interactions
+        ]
