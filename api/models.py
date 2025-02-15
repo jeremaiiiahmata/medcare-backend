@@ -96,3 +96,10 @@ class PreAssessment(models.Model):
 
     def __str__(self):
         return f"{self.patient} {self.date_created}"
+
+class DrugInteractions(models.Model):
+    drug_a = models.CharField(max_length=75, blank=False, null=False)
+    drug_b = models.CharField(max_length=75, blank=False, null=False)
+    severity = models.CharField(max_length=10, blank=False, null=False)
+    description = models.TextField(blank=False, null=False)
+    management = models.TextField(blank=False, null=False)
