@@ -119,7 +119,7 @@ def getPatients(request):
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # Patients
-@api_view(['GET', 'DELETE'])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def getPatientsByID(request, id):
 
@@ -258,7 +258,33 @@ def getPreAssessment(request):
         print("Preassessment fetched.")
         print(f"{serializer.data}")
 
+        return Response({"status": "success", "data": serializer.data})
+
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Prescription ID not found"},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# GET: GET Preassessments of Patient
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def getPreAssessmentByID(request):
+
+    pre_assessmentID = request.query_params.get('pre_assessmentID')  # Get the patient ID from query params
+
+    if not pre_assessmentID:
+        return Response({"status": "error", "message": "Pre-assessment ID is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        pre_assessment = get_object_or_404(PreAssessment, id=pre_assessmentID)
+        serializer = PreassessmentSerializer(pre_assessment)
         return Response({"status" : "success", "data" : serializer.data})
+
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
 
     except User.DoesNotExist:
         return Response({"status": "error", "message": "Prescription ID not found"},
@@ -423,11 +449,14 @@ def updatePrescriptionItem(request):
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 class ChatbotAPIView(APIView):
+    permission_classes = (IsAuthenticated,)
     def post(self, request):
+
+        prescription_id = request.query_params.get("prescription_id")
 
         # Fetch the prescription details
         try:
-            prescription = Prescription.objects.get(id=10) #Gets the prescription container based on ID provided
+            prescription = Prescription.objects.get(id=prescription_id) #Gets the prescription container based on ID provided
             patient = Patient.objects.get(id=prescription.patient.id) #Gets the patient based on the patient ID connected to the prescription container
             items = PrescriptionItem.objects.filter(prescription=prescription) #Gets the prescription items under the prescription container
 

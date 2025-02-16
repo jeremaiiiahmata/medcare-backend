@@ -34,7 +34,7 @@ urlpatterns = [
 
     #-- Pre-assessment
     path('pre-assessments', views.getPreAssessment), # get pre-assessment
-    # path('pre-assessment) #get pre-assessment by ID
+    path('pre-assessment', views.getPreAssessmentByID), #get pre-assessment by ID
     path('pre-assessment/create', views.createPreassessment), #creates a pre-assessment
     path('pre-assessment/delete', views.deletePreassessment), #deletes pre-assessment
 
