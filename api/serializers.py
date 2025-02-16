@@ -91,7 +91,7 @@ class PreassessmentSerializer(serializers.ModelSerializer): #Serializer for Pati
 
     class Meta :
         model = PreAssessment
-        fields = ['doctor', 'patient', 'date_created', 'heart_rate', 'temperature', 'complaint', 'notes', 'recommendations', 'symptoms']
+        fields = ['id', 'doctor', 'patient', 'date_created', 'heart_rate', 'temperature', 'complaint', 'notes', 'recommendations', 'symptoms']
 
 class ChatbotSerializer(serializers.Serializer):
     message = serializers.CharField(required=True, max_length=500)
