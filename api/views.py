@@ -2,7 +2,7 @@ from django.core.serializers import serialize
 from django.shortcuts import render
 from rest_framework.generics import get_object_or_404
 from rest_framework.views import APIView
-from api.models import Profile, User, Patient, Prescription, PrescriptionItem, DrugInteractions
+from api.models import Profile, User, Patient, Prescription, PrescriptionItem, DrugInteractions, PreAssessment
 from api.serializers import UserSerializer, MyTokenObtainPairSerializer, RegisterSerializer, PatientSerializer, \
     PrescriptionSerializer, PreassessmentSerializer, ProfileSerializer, PrescriptionItemSerializer, ChatbotSerializer
 from rest_framework.decorators import api_view, permission_classes
@@ -47,6 +47,21 @@ def profile(request):
     serializer = ProfileSerializer(profile)
 
     return Response({"status": "success", "data": serializer.data})
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def editProfile(request):
+
+    user_ID = request.user.id
+
+    profile = get_object_or_404(Profile, id=user_ID)
+    serializer = ProfileSerializer(profile, data=request.data, partial=True)
+
+    if serializer.is_valid():
+        serializer.save()
+        return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+    return Response({"status": "error", "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # POST: Create Patient
@@ -120,6 +135,17 @@ def getPatientsByID(request, id):
     serializer = PatientSerializer(patient)
     return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
 
+# DELETE: Remove Prescription Items of Patient
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def deletePatient(request):
+
+    patient_id = request.data.get("patient_id")
+
+    patient = get_object_or_404(Patient, id=patient_id)
+    patient.delete()
+    return Response({"status": "success", "message": "Patient item deleted successfully."}, status=status.HTTP_200_OK)
+
 
 # Prescriptions
 @api_view(['GET', 'DELETE'])
@@ -179,6 +205,68 @@ def createPrescrption(request):
     except Exception as e:
         return Response({"status": "error", "message": f"An unexpected error occurred: {str(e)}"},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# PUT: Update Prescription of Patient
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def editPrescription(request):
+
+    prescription_id = request.query_params.get("prescription_id")
+    print(request.data)
+
+    prescription = get_object_or_404(Prescription, id=prescription_id)
+    serializer = PrescriptionSerializer(prescription, data=request.data, partial=True)
+
+    if serializer.is_valid():
+        serializer.save()
+        return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+    return Response({"status": "error", "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+# PUT: Update Prescription of Patient
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def deletePrescription(request):
+
+    prescription_id = request.query_params.get("prescription_id")
+    print(request.data)
+
+    prescription = get_object_or_404(Prescription, id=prescription_id)
+    prescription.delete()
+
+    return Response({"status": "success", "message": "Prescription deleted successfully!"}, status=status.HTTP_200_OK)
+
+# GET: GET Preassessments of Patient
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def getPreAssessment(request):
+
+    patient_id = request.query_params.get('patient_id')  # Get the prescription ID from query params
+
+    # Validate if the patient ID is provided
+    if not patient_id:
+        return Response({"status": "error", "message": "Patient ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Fetch doctor (logged-in user) and patient from the database
+        preassessments = PreAssessment.objects.filter(patient=patient_id)
+
+        if not preassessments.exists():
+            return Response({"status": "error", "message": "No pre-assessments found for this patient."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        serializer = PreassessmentSerializer(preassessments, many=True)
+        print("Preassessment fetched.")
+        print(f"{serializer.data}")
+
+        return Response({"status" : "success", "data" : serializer.data})
+
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Prescription ID not found"},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 # POST: Create Prescription Item of Patient
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
@@ -218,7 +306,7 @@ def createPrescrptionItem(request):
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# POST: Create Prescription of Patient
+# POST: Create Pre-assessment of Patient
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def createPreassessment(request):
@@ -229,13 +317,11 @@ def createPreassessment(request):
         return Response({"status": "error", "message": "Patient ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        # Fetch doctor and patient
-        doctor = User.objects.get(id=user_id)
-        patient = User.objects.get(id=patient_id)
+        patient = Patient.objects.get(id=patient_id)
 
         # Add doctor and patient to request data
         data = request.data.copy()
-        data['doctor'] = doctor.id
+        data['doctor'] = user_id
         data['patient'] = patient.id
 
         # Serialize and validate data
@@ -254,6 +340,27 @@ def createPreassessment(request):
 
     except User.DoesNotExist:
         return Response({"status": "error", "message": "Doctor or Patient not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# DELETE: Remove Pre-assessment of Patient
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def deletePreassessment(request):
+
+    pre_assessmentID = request.query_params.get('pre_assessmentID')  # Get the patient ID from query params
+
+    if not pre_assessmentID:
+        return Response({"status": "error", "message": "Pre-assessment ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        pre_assessment = get_object_or_404(PreAssessment, id=pre_assessmentID)
+        pre_assessment.remove()
+        return Response({"status": "error", "message": "Pre-assessment has been successfully deleted."}, status=status.HTTP_404_NOT_FOUND)
+
+    except User.DoesNotExist:
+        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
 
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -280,7 +387,10 @@ def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
 # DELETE: Remove Prescription Items of Patient
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
-def removePrescriptionItem(request, prescription_id, drug_id):
+def removePrescriptionItem(request):
+
+    prescription_id = request.data.get("prescription_id")
+    drug_id = request.data.get("drug_id")
 
     prescription_item = get_object_or_404(PrescriptionItem, id=drug_id, prescription=prescription_id)
     prescription_item.delete()
@@ -289,7 +399,16 @@ def removePrescriptionItem(request, prescription_id, drug_id):
 
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
-def updatePrescriptionItem(request, prescription_id, item_id):
+def updatePrescriptionItem(request):
+
+    prescription_id = request.data.get("prescription_id")
+    item_id = request.data.get("id")
+
+    if not prescription_id or not item_id:
+        return Response(
+            {"status": "error", "message": "prescription_id and item_id are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     prescription_item = get_object_or_404(PrescriptionItem, id=item_id, prescription=prescription_id)
     serializer = PrescriptionItemSerializer(prescription_item, data=request.data, partial=True)
@@ -308,7 +427,7 @@ class ChatbotAPIView(APIView):
 
         # Fetch the prescription details
         try:
-            prescription = Prescription.objects.get(id=1) #Gets the prescription container based on ID provided
+            prescription = Prescription.objects.get(id=10) #Gets the prescription container based on ID provided
             patient = Patient.objects.get(id=prescription.patient.id) #Gets the patient based on the patient ID connected to the prescription container
             items = PrescriptionItem.objects.filter(prescription=prescription) #Gets the prescription items under the prescription container
 
