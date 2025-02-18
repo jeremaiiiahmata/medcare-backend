@@ -88,9 +88,10 @@ class PreAssessment(models.Model):
     date_created = models.DateField(auto_now_add=True)
     heart_rate = models.CharField(max_length=10, null=True, blank=True)
     temperature = models.CharField(max_length=20, null=True, blank=True)
+    chronic_conditions = models.TextField(null=True, blank=True)
+    smoking_history = models.CharField(max_length=50, null=True, blank=True)
     complaint = models.TextField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
-    recommendations = models.TextField(null=True, blank=True)
     symptoms = models.TextField(null=True, blank=True)
 
 

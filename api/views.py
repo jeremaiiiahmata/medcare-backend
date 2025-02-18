@@ -53,6 +53,7 @@ def profile(request):
 def editProfile(request):
 
     user_ID = request.user.id
+    print("Request Data", request.data)
 
     profile = get_object_or_404(Profile, id=user_ID)
     serializer = ProfileSerializer(profile, data=request.data, partial=True)
