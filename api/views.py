@@ -377,19 +377,21 @@ def createPreassessment(request):
 def deletePreassessment(request):
 
     pre_assessmentID = request.query_params.get('pre_assessmentID')  # Get the patient ID from query params
+    print(pre_assessmentID)
+    print("Deleting...")
 
     if not pre_assessmentID:
         return Response({"status": "error", "message": "Pre-assessment ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         pre_assessment = get_object_or_404(PreAssessment, id=pre_assessmentID)
-        pre_assessment.remove()
-        return Response({"status": "error", "message": "Pre-assessment has been successfully deleted."}, status=status.HTTP_404_NOT_FOUND)
-
-    except User.DoesNotExist:
-        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
+        print(pre_assessment)
+        pre_assessment.delete()
+        print("Deleted.")
+        return Response({"status": "error", "message": "Pre-assessment has been successfully deleted."}, status=status.HTTP_200_OK)
 
     except Exception as e:
+        print("Error")
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # GET: GET Prescription Items of Patient

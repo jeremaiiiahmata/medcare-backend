@@ -85,6 +85,7 @@ class PrescriptionItem(models.Model):
 class PreAssessment(models.Model):
     doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
+    title = models.TextField(max_length=50, null=True, blank=False)
     date_created = models.DateField(auto_now_add=True)
     heart_rate = models.CharField(max_length=10, null=True, blank=True)
     temperature = models.CharField(max_length=20, null=True, blank=True)
