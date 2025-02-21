@@ -79,19 +79,43 @@ class PrescriptionSerializer(serializers.ModelSerializer): #Serializer for Patie
 
     class Meta :
         model = Prescription
-        fields = ['title', 'description', 'doctor', 'patient', 'date_created']
+        fields = ['id', 'title', 'description', 'doctor', 'patient', 'date_created']
 
 class PrescriptionItemSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
 
     class Meta :
         model = PrescriptionItem
-        fields = ['prescription', 'amount', 'drug_name', 'dosage', 'frequency', 'notes']
+        fields = ['id', 'prescription', 'amount', 'drug_name', 'dosage', 'frequency', 'notes']
 
 class PreassessmentSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
 
     class Meta :
         model = PreAssessment
-        fields = ['id', 'doctor', 'patient', 'date_created', 'heart_rate', 'temperature', 'chronic_conditions', 'smoking_history', 'complaint', 'notes',  'symptoms']
+        fields = ['id', 'doctor', 'title', 'patient', 'date_created', 'heart_rate', 'temperature', 'chronic_conditions', 'smoking_history', 'complaint', 'notes',  'symptoms']
 
 class ChatbotSerializer(serializers.Serializer):
     message = serializers.CharField(required=True, max_length=500)
+
+class DashboardSerializer(serializers.Serializer):
+    total_doctors = serializers.IntegerField()
+    total_patients = serializers.IntegerField()
+    total_prescriptions = serializers.IntegerField()
+    total_pre_assessments = serializers.IntegerField()
+    total_drug_interactions = serializers.IntegerField()
+    patients_per_doctor = serializers.DictField(child=serializers.IntegerField())
+    most_prescribed_drugs = serializers.ListField(child=serializers.DictField())
+    recent_prescriptions = serializers.ListField(child=serializers.DictField())
+    flagged_interactions = serializers.IntegerField()
+    recent_pre_assessments = serializers.ListField(child=serializers.DictField())
+    age_distribution = serializers.DictField(child=serializers.IntegerField())
+    active_patients = serializers.IntegerField()
+    inactive_patients = serializers.IntegerField()
+    doctor_workload = serializers.ListField(child=serializers.DictField())
+    common_drug_interactions = serializers.ListField(child=serializers.DictField())
+    chronic_conditions_count = serializers.IntegerField()
+    most_common_symptoms = serializers.ListField(child=serializers.DictField())
+    average_patient_age = serializers.FloatField()
+    monthly_prescription_trend = serializers.ListField(child=serializers.DictField())
+    top_diagnosed_conditions = serializers.ListField(child=serializers.DictField())
+    prescription_completion_rate = serializers.FloatField()
+

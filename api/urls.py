@@ -10,7 +10,7 @@ urlpatterns = [
     path('register', views.RegisterView.as_view()), #registers the user
 
     #-- User-related
-    path('dashboard', views.dashboard), #function-based views
+    path('dashboard', views.DashboardView.as_view()), #function-based views
     path('profile', views.profile), #returns the profile
     path('profile/edit', views.editProfile), #edits the profile
 
@@ -21,9 +21,11 @@ urlpatterns = [
     path('patient/delete', views.deletePatient),
 
     #Prescriptions
+    path('prescriptions/all', views.getAllPrescriptions),
     path('prescriptions/<int:id>', views.getPrescriptions), #All prescriptions of patient, ID : id of patient
-    path('prescription/<int:id>', views.getPrescriptionByID), #Prescription by ID
-    path('prescription/create', views.createPrescrption), # creates a
+    path('prescription-container/<int:id>', views.getSpecificPrescriptionContainer), #Prescription by ID
+    path('prescription-items/<int:id>', views.getPrescriptionByID), #Prescription by ID
+    path('prescription/create', views.createPrescription), # creates a
     path('prescription/update', views.editPrescription), # edit prescription details
     path('prescription/delete', views.deletePrescription), #delete prescription
 
@@ -33,6 +35,7 @@ urlpatterns = [
     path('prescription-item/update', views.updatePrescriptionItem), #updates the item in the prescription
 
     #-- Pre-assessment
+    path('pre-assessments/all', views.getAllPreAssessment), # get pre-assessment
     path('pre-assessments', views.getPreAssessment), # get pre-assessment
     path('pre-assessment', views.getPreAssessmentByID), #get pre-assessment by ID
     path('pre-assessment/create', views.createPreassessment), #creates a pre-assessment
