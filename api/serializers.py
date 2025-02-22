@@ -83,6 +83,7 @@ class PrescriptionItemSerializer(serializers.ModelSerializer): #Serializer for P
         fields = ['id', 'prescription', 'amount', 'drug_name', 'dosage', 'frequency', 'notes']
 
 class PreassessmentSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
+    patient = PatientSerializer(read_only=True)
 
     class Meta :
         model = PreAssessment
