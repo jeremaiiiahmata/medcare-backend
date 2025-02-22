@@ -83,9 +83,17 @@ class PrescriptionItem(models.Model):
         return f"ID:{self.id} | [Drug Name : {self.drug_name} | Drug Amount : {self.amount}] - Prescription ID : {self.prescription.id} "
 
 class PreAssessment(models.Model):
-    doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
-    patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
-    title = models.TextField(max_length=50, null=True, blank=False)
+    # Link to the Prescription model
+    prescription = models.OneToOneField(
+        Prescription,
+        on_delete=models.CASCADE,
+        related_name='preassessment',
+        null=True,  # allow null initially
+        blank=True  # allow blank forms if needed
+    )
+    doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Optional if you want to keep this reference
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE)  # Optional if you want to keep this reference
+    title = models.CharField(max_length=50, null=True, blank=False)
     date_created = models.DateField(auto_now_add=True)
     heart_rate = models.CharField(max_length=10, null=True, blank=True)
     temperature = models.CharField(max_length=20, null=True, blank=True)
@@ -94,6 +102,9 @@ class PreAssessment(models.Model):
     complaint = models.TextField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
     symptoms = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.patient} {self.date_created}"
 
 
     def __str__(self):

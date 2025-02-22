@@ -14,6 +14,9 @@ from django.db.models import Count, Avg, Q
 from datetime import timedelta, datetime
 import os
 import openai
+from asgiref.sync import sync_to_async, async_to_sync  # Fix async/sync issue
+from django.db.models import Q
+from django.core.cache import cache  # Caching for faster responses
 
 # Create your views here.
 
@@ -609,8 +612,8 @@ def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def removePrescriptionItem(request):
 
-    prescription_id = request.data.get("prescription_id")
-    drug_id = request.data.get("drug_id")
+    prescription_id = request.query_params.get("prescription_id")
+    drug_id = request.query_params.get("drug_id")
 
     prescription_item = get_object_or_404(PrescriptionItem, id=drug_id, prescription=prescription_id)
     prescription_item.delete()
@@ -645,106 +648,88 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 class ChatbotAPIView(APIView):
     permission_classes = (IsAuthenticated,)
     def post(self, request):
+        """Process prescription interactions efficiently and query GPT-4."""
 
-        prescription_id = request.query_params.get("prescription_id")
-
-        # Fetch the prescription details
         try:
-            prescription = Prescription.objects.get(id=prescription_id) #Gets the prescription container based on ID provided
-            patient = Patient.objects.get(id=prescription.patient.id) #Gets the patient based on the patient ID connected to the prescription container
-            items = PrescriptionItem.objects.filter(prescription=prescription) #Gets the prescription items under the prescription container
-
+            # ✅ Fetch Prescription, Patient, and Medications in ONE Query (Synchronous ORM)
+            prescription_id = request.query_params.get("prescription_id")
+            prescription = Prescription.objects.select_related("patient").prefetch_related("prescriptionitem_set").get(id=prescription_id)
+            patient = prescription.patient
+            items = list(prescription.prescriptionitem_set.all())  # Convert QuerySet to list for faster access
         except Prescription.DoesNotExist:
             return Response({"error": "Prescription not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        # ✅ Extract Patient Information
         patient_info = {
             "age": patient.age,
             "weight": f"{patient.weight} kg",
-            "medical_conditions": patient.allergies  #Assuming allergies is stored as a text field
+            "medical_conditions": patient.allergies  # Assuming allergies is stored as text
         }
 
-        prescribed_medications = [
-            {
-                "drug_name": item.drug_name,
-                "dosage": item.dosage,
-                "frequency": item.frequency
-            } for item in items
-        ]
+        # ✅ Extract Prescribed Medications List
+        prescribed_medications = {
+            item.drug_name: {"dosage": item.dosage, "frequency": item.frequency, "amount": item.amount}
+            for item in items
+        }
 
-        interactions = self.getDrugInteractions(prescribed_medications)
+        # ✅ Optimize Interaction Query (Avoid Slow `__in` Queries)
+        interactions = list(DrugInteractions.objects.filter(
+            Q(drug_a__in=prescribed_medications.keys()) | Q(drug_b__in=prescribed_medications.keys())
+        ).values("drug_a", "drug_b", "severity", "description", "management"))
 
+        # ✅ Shorten the GPT-4 Prompt to Reduce Token Usage
         prompt = f"""
-                You are a medical AI specializing in analyzing prescriptions. Your task is to:
-                - Detect **ALL the potential drug-drug interactions in the list given** (not just one).
-                - Recommend dosage adjustments **where needed**.
-                - Provide a final recommendation based on the patient's medical conditions.
+               You are a medical AI that specializes in analyzing prescriptions. Your task is to:
+                - Detect **ALL potential drug-drug interactions**, including **previously detected ones**.
+                - Recommend **dosage adjustments** only if necessary, within available market dosages.
+                - The reason for dosage adjustments should be **based on effects on the patient** (Do NOT include market availability in 'reason').
 
-                Here is the prescription information:
+               **Patient Info:** Age: {patient_info["age"]}, Weight: {patient_info["weight"]}, Conditions: {patient_info["medical_conditions"]}
 
-                Patient Information:
-                - Weight: {patient_info["weight"]}
-                - Medical Conditions: Allergic to Nitroglycerin
+               **Medications:** {', '.join([f"{med} ({data['dosage']})" for med, data in prescribed_medications.items()])}
 
-                Prescribed Medications:
-                {prescribed_medications}
-                
-                **Known Drug Interactions (from database):**
-                {interactions if interactions else "No major drug interactions detected, review the drugs manually."}
+               **Interactions from Database:** {interactions if interactions else "No major interactions detected."}
 
-                **Instructions:**
-                - List all potential drug interactions and explain their effects.
-                - If a drug dosage needs adjustment, provide a recommendation.
-                - Summarize safety concerns in a structured JSON output.
+               **Instructions:**
+                - List drug interactions with effects.
+                - Suggest dosage changes **only if available in the market**.
+                - Return structured **JSON format** strictly.
 
-                Now, analyze the above information and return a structured JSON output:
-                - "potential_drug_interactions": List any potential issues based on known drug interactions.
-                - "dosage_adjustment_recommendations": Suggest adjustments if needed.
-                - "final_recommendation": A final summary of whether the prescription is safe or if modifications are necessary.
-                """
+               **STRICTLY FOLLOW THIS JSON FORMAT:**
+               {{
+                   "interactions": [{{"drug_a": "", "drug_b": "", "severity": "", "description": "", "management": ""}}],
+                   "dosage_adjustments": [{{"drug": "", "current": "", "recommended": "", "reason": ""}}],
+                   "final_recommendation": ""
+               }}
+               """
 
+        # ✅ Check if cached GPT-4 response exists
+        cache_key = f"gpt_response_{prescription_id}_{hash(str(prescribed_medications))}"
+        cached_response = cache.get(cache_key)
 
+        if cached_response:
+            return Response({"reply": cached_response}, status=status.HTTP_200_OK)
+
+        # ✅ Call GPT-4 Synchronously Using `async_to_sync`
         try:
-            # ✅ Fix: Use the new OpenAI SDK format
-            client = openai.OpenAI(api_key=openai.api_key)
-            response = client.chat.completions.create(
-                model="chatgpt-4o-latest",  # or "gpt-3.5-turbo"
-                messages=[
-                    {"role": "system", "content": "You are a medical AI that generates structured prescription analysis reports, strictly follows predefined dosage guidelines. Always return the response in a valid JSON format."},
-                    {"role": "user", "content": str(prompt)}
-                ],
-                temperature=0,
-                top_p=1,
-                max_tokens=1000
-
-            )
-            chatbot_reply = response.choices[0].message.content
+            chatbot_reply = async_to_sync(self.query_gpt4)(prompt)
+            cache.set(cache_key, chatbot_reply, timeout=600)  # ✅ Cache the GPT-4 API response
             return Response({"reply": chatbot_reply}, status=status.HTTP_200_OK)
-
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def getDrugInteractions(self, prescribed_medications):
-        """
-        Retrieves potential drug-drug interactions using Django ORM based on the provided list of medications.
-        """
-        drug_names = [med["drug_name"] for med in prescribed_medications]
-        interactions = DrugInteractions.objects.filter(
-            drug_a__in=drug_names, drug_b__in=drug_names
+    async def query_gpt4(self, prompt):
+        """Async function to query GPT-4 and return the response."""
+        client = openai.OpenAI()
+        response = await sync_to_async(client.chat.completions.create)(
+            model="chatgpt-4o-latest",
+            messages=[
+                {"role": "system",
+                 "content": "You are a medical AI providing structured prescription analysis, ensuring compliance with market dosages."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            top_p=1,
+            max_tokens=1000  # ✅ Reduce token usage to avoid rate limits
         )
-
-        if not interactions.exists():
-            return "No major drug interactions detected."
-
-        return [
-            {
-                "drug_a": interaction.drug_a,
-                "drug_b": interaction.drug_b,
-                "severity": interaction.severity,
-                "description": interaction.description,
-                "management": interaction.management,
-                "dosage": next((med["dosage"] for med in prescribed_medications if
-                                med["drug_name"] in [interaction.drug_a, interaction.drug_b]), None),
-                "frequency": next((med["frequency"] for med in prescribed_medications if
-                                   med["drug_name"] in [interaction.drug_a, interaction.drug_b]), None),
-            } for interaction in interactions
-        ]
+        return response.choices[0].message.content
