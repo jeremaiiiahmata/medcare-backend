@@ -129,7 +129,7 @@ class DashboardView(APIView):
             "common_drug_interactions": common_drug_interactions,
             "chronic_conditions_count": chronic_conditions_count,
             "most_common_symptoms": most_common_symptoms,
-            "average_patient_age": average_patient_age,
+            "average_patient_age": int(average_patient_age),
             "monthly_prescription_trend": monthly_prescription_trend,
             "top_diagnosed_conditions": top_diagnosed_conditions,
             "prescription_completion_rate": prescription_completion_rate,
@@ -596,7 +596,7 @@ def getPrescriptionByID(request, id): # ID here pertains to the prescriptionID
    try:
 
        prescription = PrescriptionItem.objects.filter(prescription=id).values(
-            'id', 'dosage', 'amount', 'drug_name'
+            'id', 'dosage', 'amount', 'drug_name', 'frequency', 'notes'
         )
 
        return Response({"status" : "success", "data" : list(prescription)})
@@ -672,17 +672,20 @@ class ChatbotAPIView(APIView):
             for item in items
         }
 
-        # ✅ Optimize Interaction Query (Avoid Slow `__in` Queries)
+        # Get all prescribed drugs
+        prescribed_drug_names = list(prescribed_medications.keys())
+
+        # Query only interactions where both drugs exist in the prescribed list
         interactions = list(DrugInteractions.objects.filter(
-            Q(drug_a__in=prescribed_medications.keys()) | Q(drug_b__in=prescribed_medications.keys())
+            (Q(drug_a__in=prescribed_drug_names) & Q(drug_b__in=prescribed_drug_names)) |
+            (Q(drug_b__in=prescribed_drug_names) & Q(drug_a__in=prescribed_drug_names))  # Handles swapped order
         ).values("drug_a", "drug_b", "severity", "description", "management"))
 
         # ✅ Shorten the GPT-4 Prompt to Reduce Token Usage
         prompt = f"""
                You are a medical AI that specializes in analyzing prescriptions. Your task is to:
-                - Detect **ALL potential drug-drug interactions**, including **previously detected ones**.
+                - Help the doctor (user) detect **ALL potential drug-drug interactions**, including **previously detected ones**.
                 - Recommend **dosage adjustments** only if necessary, within available market dosages.
-                - The reason for dosage adjustments should be **based on effects on the patient** (Do NOT include market availability in 'reason').
 
                **Patient Info:** Age: {patient_info["age"]}, Weight: {patient_info["weight"]}, Conditions: {patient_info["medical_conditions"]}
 
@@ -692,7 +695,7 @@ class ChatbotAPIView(APIView):
 
                **Instructions:**
                 - List drug interactions with effects.
-                - Suggest dosage changes **only if available in the market**.
+                - The reason for dosage adjustments should be **based on effects on the patient** and normal dosage (Do NOT include market availability in 'reason').
                 - Return structured **JSON format** strictly.
 
                **STRICTLY FOLLOW THIS JSON FORMAT:**
@@ -730,6 +733,6 @@ class ChatbotAPIView(APIView):
             ],
             temperature=0,
             top_p=1,
-            max_tokens=1000  # ✅ Reduce token usage to avoid rate limits
+            max_tokens=1000
         )
         return response.choices[0].message.content

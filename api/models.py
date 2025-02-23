@@ -44,14 +44,17 @@ post_save.connect(saveUserProfile, sender=User)
 
 class Patient(models.Model):
     doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
-    image = models.ImageField(upload_to="patient_images/", null=True, blank=True)  # Allow image to be optional
+    image = models.ImageField(upload_to="patient_images/", null=True, blank=True)
     first_name = models.CharField(max_length=75)
-    middle_name = models.CharField(max_length=50, null=True, blank=True)  # Optional middle name
+    middle_name = models.CharField(max_length=50, null=True, blank=True)
     last_name = models.CharField(max_length=50)
-    blood_type = models.CharField(max_length=3, null=True, blank=True)  # Validate blood types with choices
-    email = models.EmailField(max_length=75, null=True, blank=True)  # Use EmailField for email validation
-    contact_number = models.CharField(max_length=15, null=True, blank=True)  # Set a realistic length for phone numbers
+    blood_type = models.CharField(max_length=3, null=True, blank=True)
+    email = models.EmailField(max_length=75, null=True, blank=True)
+    contact_number = models.CharField(max_length=15, null=True, blank=True)
     address = models.TextField(null=True, blank=True)  # Use TextField for potentially longer addresses
+    # city = models.CharField(max_length=50, null=True, blank=True)
+    # state = models.CharField(max_length=50, null=True, blank=True)
+    # postal_code = models.CharField(max_length=10, null=True, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)  # Age should be positive
     weight = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)  # Specify max_digits and decimal_places
     gender = models.CharField(max_length=10, null=True, blank=True)  # Use choices for consistency
