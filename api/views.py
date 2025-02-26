@@ -3,7 +3,8 @@ from django.shortcuts import render
 from rest_framework.generics import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination, LimitOffsetPagination
-from api.models import Profile, User, Patient, Prescription, PrescriptionItem, DrugInteractions, PreAssessment
+from api.models import Profile, User, Patient, Prescription, PrescriptionItem, DrugInteractions, PreAssessment, \
+    DrugAvailableDosages, GeneratedReport
 from api.serializers import UserSerializer, MyTokenObtainPairSerializer, RegisterSerializer, PatientSerializer, \
     PrescriptionSerializer, PreassessmentSerializer, ProfileSerializer, PrescriptionItemSerializer, ChatbotSerializer
 from rest_framework.decorators import api_view, permission_classes
@@ -18,6 +19,13 @@ import openai
 from asgiref.sync import sync_to_async, async_to_sync  # Fix async/sync issue
 from django.db.models import Q
 from django.core.cache import cache  # Caching for faster responses
+import logging
+import hashlib
+
+
+# ✅ Configure Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Create your views here.
 
@@ -76,17 +84,6 @@ class DashboardView(APIView):
         # Patients with Chronic Conditions
         chronic_conditions_count = PreAssessment.objects.exclude(chronic_conditions="").count()
 
-        # Most Common Symptoms
-        symptom_counts = (
-            PreAssessment.objects.exclude(symptoms="")
-            .values("symptoms")
-            .annotate(count=Count("id"))
-            .order_by("-count")[:5]
-        )
-        most_common_symptoms = [
-            {"symptom": s["symptoms"], "count": s["count"]} for s in symptom_counts
-        ]
-
         # Average Age of Patients
         average_patient_age = Patient.objects.aggregate(Avg("age"))["age__avg"] or 0
 
@@ -129,7 +126,6 @@ class DashboardView(APIView):
             "doctor_workload": doctor_workload,
             "common_drug_interactions": common_drug_interactions,
             "chronic_conditions_count": chronic_conditions_count,
-            "most_common_symptoms": most_common_symptoms,
             "average_patient_age": int(average_patient_age),
             "monthly_prescription_trend": monthly_prescription_trend,
             "top_diagnosed_conditions": top_diagnosed_conditions,
@@ -220,6 +216,7 @@ def createPatient(request):
                 "status": "error",
                 "errors": serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
+            print(serializer.errors)
 
     except User.DoesNotExist:
         return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -239,8 +236,8 @@ def getPatients(request):
         doctor = User.objects.get(id=doctor_id)
 
         # Get all patients for the doctor
-        patients = Patient.objects.filter(doctor=doctor)
 
+        patients = Patient.objects.filter(doctor=doctor)
 
         paginator = LimitOffsetPagination()
         paginated_patients = paginator.paginate_queryset(patients, request)
@@ -248,6 +245,11 @@ def getPatients(request):
         serializer = PatientSerializer(paginated_patients,many=True)
 
         return paginator.get_paginated_response(serializer.data)
+      
+        patients = Patient.objects.filter(doctor=doctor).values(
+            'id', 'first_name', 'last_name', 'blood_type', 'email', 'contact_number', 'street_name',
+            'city', 'state_province', 'postal_code', 'age', 'weight', 'gender', 'id_number', 'allergies'
+        )
 
         # return Response({"status": "success", "data": patients}, status=status.HTTP_200_OK)
 
@@ -266,10 +268,6 @@ def getPatientsByID(request, id):
     # Ensure the doctor exists and get the patient
     patient = get_object_or_404(Patient, id=id, doctor_id=doctorID)
 
-    if request.method == 'DELETE':
-        patient.delete()
-        return Response({"status": "success", "message": "Patient deleted successfully."}, status=status.HTTP_200_OK)
-
     serializer = PatientSerializer(patient)
     return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
 
@@ -278,7 +276,7 @@ def getPatientsByID(request, id):
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def deletePatient(request):
 
-    patient_id = request.data.get("patient_id")
+    patient_id = request.query_params.get("patient_id")
 
     patient = get_object_or_404(Patient, id=patient_id)
     patient.delete()
@@ -342,37 +340,48 @@ def getSpecificPrescriptionContainer(request, id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def createPrescription(request):
-    user_id = request.user.id  # Get the authenticated doctor's ID
-    patient_id = request.query_params.get('patient_id')  # Get the patient ID from query params
-
-    # Validate if the patient ID is provided
+    patient_id = request.query_params.get('patient_id')
     if not patient_id:
-        return Response({"status": "error", "message": "Patient ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"status": "error", "message": "Patient ID is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     try:
-        # Fetch doctor (logged-in user) and patient from the database
-        doctor = User.objects.get(id=user_id) #Gets the current doctor's information
-        patient = Patient.objects.get(id=patient_id) #Gets the patient based on ID from params
+        doctor = User.objects.get(id=request.user.id)
+        patient = Patient.objects.get(id=patient_id)
 
-        # Create the Prescription instance
-        prescription = Prescription(doctor=doctor, patient=patient)
-        prescription.save()
+        # Use request.data to get all the fields sent from the front-end.
+        data = request.data.copy()
+        # Optionally remove keys that should be read-only
+        data.pop('doctor', None)
+        data.pop('patient', None)
+        data.pop('date_created', None)
 
-        return Response({
-            "status": "success",
-            "message": f"Prescription created successfully for patient {patient.first_name} {patient.last_name}. Doctor : {doctor.username}",
-            "prescription_id": prescription.id  # Return the prescription ID if needed
-        }, status=status.HTTP_201_CREATED)
+        serializer = PrescriptionSerializer(data=data)
+        if serializer.is_valid():
+            # Set doctor and patient from context, so any extra values will be saved too.
+            serializer.save(doctor=doctor, patient=patient)
+            return Response({
+                "status": "success",
+                "message": f"Prescription created successfully for patient {patient.first_name} {patient.last_name}. Doctor: {doctor.username}",
+                "prescription": serializer.data
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     except User.DoesNotExist:
         return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
-
     except Patient.DoesNotExist:
         return Response({"status": "error", "message": "Patient not found."}, status=status.HTTP_404_NOT_FOUND)
-
     except Exception as e:
-        return Response({"status": "error", "message": f"An unexpected error occurred: {str(e)}"},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        return Response(
+            {"status": "error", "message": f"An unexpected error occurred: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 # PUT: Update Prescription of Patient
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
@@ -488,7 +497,7 @@ def getPreAssessmentByID(request):
 # POST: Create Prescription Item of Patient
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
-def createPrescrptionItem(request):
+def createPrescriptionItem(request):
     prescription_id = request.query_params.get('prescription_id')  # Get the prescription ID from query params
 
     # Validate if the patient ID is provided
@@ -496,8 +505,9 @@ def createPrescrptionItem(request):
         return Response({"status": "error", "message": "Prescription ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
+
         # Fetch doctor (logged-in user) and patient from the database
-        prescription = Patient.objects.get(id=prescription_id)
+        prescription = Prescription.objects.get(id=prescription_id)
 
         # Add doctor and patient to request data
         data = request.data.copy()
@@ -505,6 +515,7 @@ def createPrescrptionItem(request):
 
         # Serialize and validate data
         serializer = PrescriptionItemSerializer(data=data)
+
         if serializer.is_valid():
             serializer.save()
             return Response({
@@ -541,22 +552,19 @@ def createPreassessment(request):
         patient = Patient.objects.get(id=patient_id)
         print(f"Found patient: {patient}")
 
-        # Add doctor and patient to request data
         data = request.data.copy()
-        data['doctor'] = user_id
-        data['patient'] = patient.id
-
-        print(f"Data to serialize: {data}")
-
-        # Serialize and validate data
+        data.pop('patient', None)
+        data.pop('doctor', None)
         serializer = PreassessmentSerializer(data=data)
+
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(patient=patient, doctor=request.user)
             print("Preassessment created successfully!")
             return Response({
                 "status": "success",
                 "data": serializer.data
             }, status=status.HTTP_201_CREATED)
+
         else:
             print(f"Validation errors: {serializer.errors}")
             return Response({
@@ -670,7 +678,7 @@ class ChatbotAPIView(APIView):
         patient_info = {
             "age": patient.age,
             "weight": f"{patient.weight} kg",
-            "medical_conditions": patient.allergies  # Assuming allergies is stored as text
+            "allergies" : patient.allergies
         }
 
         # ✅ Extract Prescribed Medications List
@@ -679,8 +687,31 @@ class ChatbotAPIView(APIView):
             for item in items
         }
 
+        # ✅ Generate a hash for the prescription to ensure uniform responses
+        prescription_str = str(sorted(prescribed_medications.items()))
+        prescription_hash = hashlib.sha256(prescription_str.encode()).hexdigest()
+
+        # ✅ Check if the report is already stored in the database
+        stored_report = GeneratedReport.objects.filter(prescription_hash=prescription_hash).first()
+        if stored_report:
+            logger.info(f"Stored report found for prescription hash {prescription_hash}, returning cached report.")
+            return Response({"reply": stored_report.response}, status=status.HTTP_200_OK)
+
         # Get all prescribed drugs
         prescribed_drug_names = list(prescribed_medications.keys())
+
+        # ✅ Retrieve Available Market Dosages from Database
+        available_dosages = {dosage.drug_name: dosage.available_dosage for dosage in
+                             DrugAvailableDosages.objects.filter(drug_name__in=prescribed_medications.keys())}
+
+        # ✅ Optimize Interaction Query (Avoid Slow `__in` Queries)
+        known_drugs = set(DrugInteractions.objects.values_list("drug_a", flat=True)) | set(
+            DrugInteractions.objects.values_list("drug_b", flat=True))
+
+        missing_drugs = [
+            {"drug": drug, "reason": "Not found in the local database, requires external validation"}
+            for drug in prescribed_medications.keys() if drug not in known_drugs
+        ]
 
         # Query only interactions where both drugs exist in the prescribed list
         interactions = list(DrugInteractions.objects.filter(
@@ -690,20 +721,31 @@ class ChatbotAPIView(APIView):
 
         # ✅ Shorten the GPT-4 Prompt to Reduce Token Usage
         prompt = f"""
-               You are a medical AI that specializes in analyzing prescriptions. Your task is to:
-                - Help the doctor (user) detect **ALL potential drug-drug interactions**, including **previously detected ones**.
-                - Recommend **dosage adjustments** only if necessary, within available market dosages.
+               **Instructions:**
+                - Help the doctor detect **ALL potential drug-drug interactions**, including **previously detected ones**.
+                - Recommend **dosage adjustments** only if necessary, ensuring recommendations follow standard dosages.
+                 - Ensure dosage recommendations align with **verified market dosages**, using this dataset: {available_dosages}.
+                - If no market dosage is found, attempt to determine a safe alternative.
+                - If a drug is missing from the known interactions database, use online sources to analyze its interactions.
 
-               **Patient Info:** Age: {patient_info["age"]}, Weight: {patient_info["weight"]}, Conditions: {patient_info["medical_conditions"]}
+               **Patient Info:** Age: {patient_info["age"]}, Weight: {patient_info["weight"]}, Allergens: {patient_info["allergies"]}
 
                **Medications:** {', '.join([f"{med} ({data['dosage']})" for med, data in prescribed_medications.items()])}
 
-               **Interactions from Database:** {interactions if interactions else "No major interactions detected."}
+               **Interactions from Database:** {interactions if interactions else "No interactions detected."}
+               
+               **Market Dosages Reference:** {available_dosages if available_dosages else "No database record found. Use online sources if needed."}
+               
+               **Missing Drugs (Require Online Search):** {missing_drugs if missing_drugs else "All drugs are in the database."}
 
                **Instructions:**
-                - List drug interactions with effects.
-                - The reason for dosage adjustments should be **based on effects on the patient** and normal dosage (Do NOT include market availability in 'reason').
-                - Return structured **JSON format** strictly.
+                - List drug interactions **with medical explanations**.
+                - Suggest dosage adjustments only if the prescribed dose **is outside the normal range**.
+                - **DO NOT** introduce randomness—ensure that identical prescriptions receive **identical responses**.
+                - **Strictly follow predefined dosage recommendations** (if available).
+                - If severity is `"None"`, **omit it from the response**.
+                - If a drug is missing from the database, use external sources to check its interactions.
+                - Output in **structured JSON format** only.
 
                **STRICTLY FOLLOW THIS JSON FORMAT:**
                {{
@@ -723,9 +765,14 @@ class ChatbotAPIView(APIView):
         # ✅ Call GPT-4 Synchronously Using `async_to_sync`
         try:
             chatbot_reply = async_to_sync(self.query_gpt4)(prompt)
-            cache.set(cache_key, chatbot_reply, timeout=600)  # ✅ Cache the GPT-4 API response
+
+            # ✅ Store the generated report in the database
+            GeneratedReport.objects.create(prescription_hash=prescription_hash, response=chatbot_reply)
+
+            logger.info(f"GPT-4 API called for prescription hash {prescription_hash}. Response stored.")
             return Response({"reply": chatbot_reply}, status=status.HTTP_200_OK)
         except Exception as e:
+            logger.error(f"GPT-4 API error for prescription hash {prescription_hash}: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     async def query_gpt4(self, prompt):
@@ -740,6 +787,7 @@ class ChatbotAPIView(APIView):
             ],
             temperature=0,
             top_p=1,
-            max_tokens=1000
+            max_tokens=2000
         )
+        logger.info(f"GPT-4 response generated. Token usage: {len(response.choices[0].message.content.split())} words.")
         return response.choices[0].message.content

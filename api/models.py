@@ -51,12 +51,12 @@ class Patient(models.Model):
     blood_type = models.CharField(max_length=3, null=True, blank=True)
     email = models.EmailField(max_length=75, null=True, blank=True)
     contact_number = models.CharField(max_length=15, null=True, blank=True)
-    address = models.TextField(null=True, blank=True)  # Use TextField for potentially longer addresses
-    # city = models.CharField(max_length=50, null=True, blank=True)
-    # state = models.CharField(max_length=50, null=True, blank=True)
-    # postal_code = models.CharField(max_length=10, null=True, blank=True)
+    street_name = models.TextField(null=True, blank=True)  # Use TextField for potentially longer addresses
+    city = models.CharField(max_length=50, null=True, blank=True)
+    state_province = models.CharField(max_length=50, null=True, blank=True)
+    postal_code = models.CharField(max_length=10, null=True, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)  # Age should be positive
-    weight = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)  # Specify max_digits and decimal_places
+    weight = models.CharField(max_length=10, null=True, blank=True)  # Specify max_digits and decimal_places
     gender = models.CharField(max_length=10, null=True, blank=True)  # Use choices for consistency
     id_number = models.CharField(max_length=100, unique=True, null=True, blank=True)  # Add unique constraint for IDs
     allergies = models.TextField(null=True, blank=True)  # Already good for optional text
@@ -67,7 +67,7 @@ class Patient(models.Model):
 class Prescription(models.Model):
     doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Reference the custom User model
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE)
-    title = models.CharField(max_length=50, blank=False, default=f"Prescription")
+    title = models.CharField(max_length=50, null=False, blank=False)
     description = models.TextField(null=True, blank=True)
     date_created = models.DateField(auto_now_add=True)
 
@@ -98,13 +98,13 @@ class PreAssessment(models.Model):
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE)  # Optional if you want to keep this reference
     title = models.CharField(max_length=50, null=True, blank=False)
     date_created = models.DateField(auto_now_add=True)
+    blood_pressure = models.CharField(max_length=20, null=True, blank=True)
     heart_rate = models.CharField(max_length=10, null=True, blank=True)
     temperature = models.CharField(max_length=20, null=True, blank=True)
     chronic_conditions = models.TextField(null=True, blank=True)
     smoking_history = models.CharField(max_length=50, null=True, blank=True)
     complaint = models.TextField(null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
-    symptoms = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.patient} {self.date_created}"
@@ -119,3 +119,16 @@ class DrugInteractions(models.Model):
     severity = models.CharField(max_length=10, blank=False, null=False)
     description = models.TextField(blank=False, null=False)
     management = models.TextField(blank=False, null=False)
+
+class DrugAvailableDosages(models.Model):
+    drug_name = models.CharField(max_length=100, blank=False, null=False)
+    available_dosage = models.TextField(blank=False, null=False)
+    form = models.CharField(max_length=100, blank=False, null=False)
+
+class GeneratedReport(models.Model):
+    prescription_hash = models.CharField(max_length=255, unique=True)
+    response = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"GeneratedReport {self.prescription_hash} - {self.created_at}"

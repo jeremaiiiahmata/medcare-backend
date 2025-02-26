@@ -30,7 +30,7 @@ urlpatterns = [
     path('prescription/delete', views.deletePrescription), #delete prescription
 
     #-- Prescription Item
-    path('prescription-item/add', views.createPrescrptionItem), # creates an item in the prescription
+    path('prescription-item/add', views.createPrescriptionItem), # creates an item in the prescription
     path('prescription-item/delete', views.removePrescriptionItem), #deletes an item in the prescription
     path('prescription-item/update', views.updatePrescriptionItem), #updates the item in the prescription
 
