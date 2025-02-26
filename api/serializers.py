@@ -73,7 +73,7 @@ class PatientSerializer(serializers.ModelSerializer): #Serializer for Patient, e
     class Meta :
         model = Patient
         fields = ['id', 'doctor', 'first_name', 'last_name', 'blood_type', 'email', 'contact_number',
-                  'address', 'age', 'weight', 'gender', 'id_number', 'allergies']
+                  'street_name', 'city', 'state_province', 'postal_code', 'age', 'weight', 'gender', 'id_number', 'allergies']
 
 class PrescriptionItemSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
 
@@ -88,6 +88,7 @@ class PreassessmentSerializer(serializers.ModelSerializer): #Serializer for Pati
     class Meta :
         model = PreAssessment
         fields = '__all__'
+        read_only_fields = ('doctor', 'patient')
 
 class PrescriptionSerializer(
     serializers.ModelSerializer):  # Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
@@ -96,7 +97,8 @@ class PrescriptionSerializer(
 
     class Meta:
         model = Prescription
-        fields = ['id', 'doctor', 'patient', 'title', 'description', 'date_created', 'preassessment']
+        fields = ['id', 'title', 'description', 'doctor', 'patient', 'date_created', 'preassessment']
+        read_only_fields = ['id', 'doctor', 'patient', 'date_created']
 
 class ChatbotSerializer(serializers.Serializer):
     message = serializers.CharField(required=True, max_length=500)
