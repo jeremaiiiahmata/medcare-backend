@@ -2,6 +2,7 @@ from django.core.serializers import serialize
 from django.shortcuts import render
 from rest_framework.generics import get_object_or_404
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination, LimitOffsetPagination
 from api.models import Profile, User, Patient, Prescription, PrescriptionItem, DrugInteractions, PreAssessment, \
     DrugAvailableDosages, GeneratedReport
 from api.serializers import UserSerializer, MyTokenObtainPairSerializer, RegisterSerializer, PatientSerializer, \
@@ -235,12 +236,22 @@ def getPatients(request):
         doctor = User.objects.get(id=doctor_id)
 
         # Get all patients for the doctor
+
+        patients = Patient.objects.filter(doctor=doctor)
+
+        paginator = LimitOffsetPagination()
+        paginated_patients = paginator.paginate_queryset(patients, request)
+
+        serializer = PatientSerializer(paginated_patients,many=True)
+
+        return paginator.get_paginated_response(serializer.data)
+      
         patients = Patient.objects.filter(doctor=doctor).values(
             'id', 'first_name', 'last_name', 'blood_type', 'email', 'contact_number', 'street_name',
             'city', 'state_province', 'postal_code', 'age', 'weight', 'gender', 'id_number', 'allergies'
         )
 
-        return Response({"status": "success", "data": list(patients)}, status=status.HTTP_200_OK)
+        # return Response({"status": "success", "data": patients}, status=status.HTTP_200_OK)
 
     except User.DoesNotExist:
         return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
