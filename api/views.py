@@ -44,11 +44,13 @@ class DashboardView(APIView):
         today = datetime.today()
         six_months_ago = today - timedelta(days=180)
 
+        doctor_id = request.user.id
+
         # Total counts
         total_doctors = User.objects.count()
-        total_patients = Patient.objects.count()
-        total_prescriptions = Prescription.objects.count()
-        total_pre_assessments = PreAssessment.objects.count()
+        total_patients = Patient.objects.filter(doctor=doctor_id).count()
+        total_prescriptions = Prescription.objects.filter(doctor=doctor_id).count()
+        total_pre_assessments = PreAssessment.objects.filter(doctor=doctor_id).count()
         total_drug_interactions = DrugInteractions.objects.count()
 
         # Active and Inactive Patients
