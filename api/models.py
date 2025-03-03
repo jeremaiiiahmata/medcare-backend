@@ -60,6 +60,8 @@ class Patient(models.Model):
     gender = models.CharField(max_length=10, null=True, blank=True)  # Use choices for consistency
     id_number = models.CharField(max_length=100, unique=True, null=True, blank=True)  # Add unique constraint for IDs
     allergies = models.TextField(null=True, blank=True)  # Already good for optional text
+    date_created = models.DateField(auto_now_add=True)
+    time_created = models.TimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} (Doctor: {self.doctor.username})"
@@ -96,15 +98,15 @@ class PreAssessment(models.Model):
     )
     doctor = models.ForeignKey(User, on_delete=models.CASCADE)  # Optional if you want to keep this reference
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE)  # Optional if you want to keep this reference
-    title = models.CharField(max_length=50, null=True, blank=False)
     date_created = models.DateField(auto_now_add=True)
     blood_pressure = models.CharField(max_length=20, null=True, blank=True)
     heart_rate = models.CharField(max_length=10, null=True, blank=True)
     temperature = models.CharField(max_length=20, null=True, blank=True)
     chronic_conditions = models.TextField(null=True, blank=True)
     smoking_history = models.CharField(max_length=50, null=True, blank=True)
+    alcohol_consumption_history = models.CharField(max_length=50, null=True, blank=True)
     complaint = models.TextField(null=True, blank=True)
-    notes = models.TextField(null=True, blank=True)
+    medical_history = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.patient} {self.date_created}"

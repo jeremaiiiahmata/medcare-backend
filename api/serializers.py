@@ -72,8 +72,9 @@ class PatientSerializer(serializers.ModelSerializer): #Serializer for Patient, e
 
     class Meta :
         model = Patient
-        fields = ['id', 'doctor', 'first_name', 'last_name', 'blood_type', 'email', 'contact_number',
-                  'street_name', 'city', 'state_province', 'postal_code', 'age', 'weight', 'gender', 'id_number', 'allergies']
+        fields = ['id', 'doctor', 'first_name', 'middle_name', 'last_name', 'blood_type', 'email', 'contact_number',
+                  'street_name', 'city', 'state_province', 'postal_code', 'age', 'weight', 'gender', 'id_number', 'allergies', 'date_created',
+                  'time_created']
 
 class PrescriptionItemSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
 

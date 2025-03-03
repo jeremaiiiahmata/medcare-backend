@@ -1,5 +1,6 @@
 from django.core.serializers import serialize
 from django.shortcuts import render
+from collections import Counter
 from rest_framework.generics import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination, LimitOffsetPagination
@@ -43,15 +44,36 @@ class DashboardView(APIView):
     def get(self, request):
         today = datetime.today()
         six_months_ago = today - timedelta(days=180)
+        first_day_of_current_month = today.replace(day=1)
+        first_day_of_last_month = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
 
         doctor_id = request.user.id
 
-        # Total counts
-        total_doctors = User.objects.count()
         total_patients = Patient.objects.filter(doctor=doctor_id).count()
         total_prescriptions = Prescription.objects.filter(doctor=doctor_id).count()
         total_pre_assessments = PreAssessment.objects.filter(doctor=doctor_id).count()
         total_drug_interactions = DrugInteractions.objects.count()
+
+        # Last Month's Counts
+        last_month_patients = Patient.objects.filter(
+            doctor=doctor_id, date_created__gte=first_day_of_last_month, date_created__lt=first_day_of_current_month
+        ).count()
+        last_month_prescriptions = Prescription.objects.filter(
+            doctor=doctor_id, date_created__gte=first_day_of_last_month, date_created__lt=first_day_of_current_month
+        ).count()
+        last_month_pre_assessments = PreAssessment.objects.filter(
+            doctor=doctor_id, date_created__gte=first_day_of_last_month, date_created__lt=first_day_of_current_month
+        ).count()
+
+        # Calculate Growth Percentage
+        def calculate_growth(current, previous):
+            if previous == 0:
+                return 100 if current > 0 else 0  # Avoid division by zero
+            return round(((current - previous) / previous) * 100, 2)
+
+        patient_growth = calculate_growth(total_patients, last_month_patients)
+        prescription_growth = calculate_growth(total_prescriptions, last_month_prescriptions)
+        pre_assessment_growth = calculate_growth(total_pre_assessments, last_month_pre_assessments)
 
         # Active and Inactive Patients
         active_patients = Patient.objects.filter(
@@ -87,7 +109,9 @@ class DashboardView(APIView):
         chronic_conditions_count = PreAssessment.objects.exclude(chronic_conditions="").count()
 
         # Average Age of Patients
-        average_patient_age = Patient.objects.aggregate(Avg("age"))["age__avg"] or 0
+        average_patient_age = (
+                Patient.objects.filter(doctor=doctor_id).aggregate(Avg("age"))["age__avg"] or 0
+        )
 
         # Monthly Prescription Trends
         monthly_prescriptions = (
@@ -116,54 +140,40 @@ class DashboardView(APIView):
         total_follow_ups = Prescription.objects.filter(patient__prescription__isnull=False).count()
         prescription_completion_rate = round((total_follow_ups / total_prescriptions) * 100, 2) if total_prescriptions else 0
 
+        # Fetch 5 Most Recent Patients Created by the Doctor
+        recent_patients = Patient.objects.filter(doctor=doctor_id).order_by("-date_created", "-time_created")[:6]
+        recent_patients_serialized = PatientSerializer(recent_patients, many=True).data
+
+        # Most Prescribed Medications
+        prescribed_drugs = (
+            PrescriptionItem.objects
+            .filter(prescription__doctor=doctor_id)
+            .values_list("drug_name", flat=True)
+        )
+
+        # Count occurrences & get top 3
+        top_3_prescribed = [drug for drug, count in Counter(prescribed_drugs).most_common(3)]
+
         # Structure the response
         data = {
-            "total_doctors": total_doctors,
-            "total_patients": total_patients,
-            "total_prescriptions": total_prescriptions,
-            "total_pre_assessments": total_pre_assessments,
+            "total_patients": {"count": total_patients, "growth": patient_growth},
+            "total_prescriptions": {"count": total_prescriptions, "growth": prescription_growth},
+            "total_pre_assessments": {"count": total_pre_assessments, "growth": pre_assessment_growth},
             "total_drug_interactions": total_drug_interactions,
             "active_patients": active_patients,
             "inactive_patients": inactive_patients,
             "doctor_workload": doctor_workload,
+            "recent_patients" : recent_patients_serialized,
             "common_drug_interactions": common_drug_interactions,
             "chronic_conditions_count": chronic_conditions_count,
             "average_patient_age": int(average_patient_age),
             "monthly_prescription_trend": monthly_prescription_trend,
             "top_diagnosed_conditions": top_diagnosed_conditions,
             "prescription_completion_rate": prescription_completion_rate,
+            "top_3_prescribed_medications": top_3_prescribed,
         }
 
         return Response(data)
-
-
-# GET : Fetch the dashboard
-@api_view(['GET']) #defining the methods
-@permission_classes([IsAuthenticated]) #defining the permission in function based classes
-def dashboard(request):
-
-    doctor_id = request.user.id
-
-    """
-       Returns an overview of the system's data, including total counts for key models.
-       """
-    user = request.user  # Get the authenticated user
-
-    # Count only the data relevant to the logged-in doctor
-    total_patients = Patient.objects.filter(doctor=doctor_id).count()
-    total_prescriptions = Prescription.objects.filter(doctor=doctor_id).count()
-    total_pre_assessments = PreAssessment.objects.filter(doctor=doctor_id).count()
-    total_drug_interactions = DrugInteractions.objects.count()  # Global count
-
-    # Response data
-    data = {
-        "total_patients": total_patients,
-        "total_prescriptions": total_prescriptions,
-        "total_pre_assessments": total_pre_assessments,
-        "total_drug_interactions": total_drug_interactions,
-    }
-
-    return Response(data)
 
 # GET : Get the user's details
 @api_view(['GET']) #defining the methods
@@ -238,7 +248,6 @@ def getPatients(request):
         doctor = User.objects.get(id=doctor_id)
 
         # Get all patients for the doctor
-
         patients = Patient.objects.filter(doctor=doctor)
 
         paginator = LimitOffsetPagination()
@@ -290,6 +299,8 @@ def getAllPrescriptions(request):
 
     doctor_id = request.user.id
 
+    doctor = User.objects.get(id=doctor_id)
+
     # Fetch all prescriptions belonging to the logged-in doctor and the given patient
     prescriptions = Prescription.objects.filter(doctor_id=doctor_id)
 
@@ -297,8 +308,14 @@ def getAllPrescriptions(request):
         return Response({"status": "error", "message": "No prescriptions found for this doctor."},
                         status=status.HTTP_404_NOT_FOUND)
 
-    serializer = PrescriptionSerializer(prescriptions, many=True)  # Use many=True for multiple objects
-    return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+    paginator = LimitOffsetPagination()
+    paginated_prescriptions = paginator.paginate_queryset(prescriptions, request)
+
+    serializer = PrescriptionSerializer(paginated_prescriptions,many=True)
+
+    return paginator.get_paginated_response(serializer.data)
+
+
 
 # Prescriptions
 @api_view(['GET', 'DELETE'])
@@ -337,53 +354,79 @@ def getSpecificPrescriptionContainer(request, id):
     serializer = PrescriptionSerializer(prescription, )  # Use many=True for multiple objects
     return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
 
-
-# POST: Create Prescription of Patient
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+@permission_classes([IsAuthenticated])
 def createPrescription(request):
-    patient_id = request.query_params.get('patient_id')
-    if not patient_id:
-        return Response(
-            {"status": "error", "message": "Patient ID is required."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    user_id = request.user.id  # Get doctor ID
+    patient_id = request.query_params.get('patient_id')  # Get patient ID
+    pre_assessment_id = request.query_params.get('pre_assessment_id')  # Get pre-assessment ID (optional)
 
     try:
-        doctor = User.objects.get(id=request.user.id)
-        patient = Patient.objects.get(id=patient_id)
+        if not patient_id:
+            return Response(
+                {"status": "error", "message": "Patient ID is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # Use request.data to get all the fields sent from the front-end.
+        # Fetch the patient
+        try:
+            patient = Patient.objects.get(id=patient_id)
+        except Patient.DoesNotExist:
+            return Response(
+                {"status": "error", "message": "Patient not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Fetch the specific pre-assessment if provided
+        pre_assessment = None
+        if pre_assessment_id:
+            try:
+                pre_assessment = PreAssessment.objects.get(id=pre_assessment_id, patient=patient)
+            except PreAssessment.DoesNotExist:
+                return Response(
+                    {"status": "error", "message": "Pre-Assessment not found for this patient."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        # Extract prescription data from request
         data = request.data.copy()
-        # Optionally remove keys that should be read-only
         data.pop('doctor', None)
         data.pop('patient', None)
         data.pop('date_created', None)
 
         serializer = PrescriptionSerializer(data=data)
+
         if serializer.is_valid():
-            # Set doctor and patient from context, so any extra values will be saved too.
-            serializer.save(doctor=doctor, patient=patient)
+            # Save the prescription
+            prescription = serializer.save(
+                doctor=request.user,
+                patient=patient
+            )
+
+            # If a valid pre-assessment is provided, link it to the new prescription
+            if pre_assessment:
+                pre_assessment.prescription = prescription
+                pre_assessment.save()
+                print("Pre-assessment created successfully!")
+
             return Response({
                 "status": "success",
-                "message": f"Prescription created successfully for patient {patient.first_name} {patient.last_name}. Doctor: {doctor.username}",
+                "message": f"Prescription created successfully for patient {patient.first_name} {patient.last_name}.",
                 "prescription": serializer.data
             }, status=status.HTTP_201_CREATED)
+
         else:
             return Response({
                 "status": "error",
                 "errors": serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
 
-    except User.DoesNotExist:
-        return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
-    except Patient.DoesNotExist:
-        return Response({"status": "error", "message": "Patient not found."}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response(
             {"status": "error", "message": f"An unexpected error occurred: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
 # PUT: Update Prescription of Patient
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
@@ -418,25 +461,24 @@ def deletePrescription(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def getAllPreAssessment(request):
-
     doctor_id = request.user.id
 
-    try:
-        # Fetch doctor (logged-in user) and patient from the database
-        preassessments = PreAssessment.objects.filter(doctor=doctor_id)
+    doctor = User.objects.get(id=doctor_id)
 
-        if not preassessments.exists():
-            return Response({"status": "error", "message": "No pre-assessments found for this doctor."},
-                            status=status.HTTP_404_NOT_FOUND)
+    # Fetch all prescriptions belonging to the logged-in doctor and the given patient
+    preassessments = PreAssessment.objects.filter(doctor_id=doctor_id)
 
-        serializer = PreassessmentSerializer(preassessments, many=True)
-        print("Preassessment fetched.")
-        print(f"{serializer.data}")
+    if not preassessments.exists():
+        return Response({"status": "error", "message": "No pre-assessments found for this doctor."},
+                        status=status.HTTP_404_NOT_FOUND)
 
-        return Response({"status": "success", "data": serializer.data})
+    paginator = LimitOffsetPagination()
+    paginated_preassessments = paginator.paginate_queryset(preassessments, request)
 
-    except Exception as e:
-        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    serializer = PreassessmentSerializer(paginated_preassessments, many=True)
+
+    return paginator.get_paginated_response(serializer.data)
+
 
 # GET: GET Preassessments of Patient
 @api_view(['GET'])
@@ -537,50 +579,63 @@ def createPrescriptionItem(request):
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# POST: Create Pre-assessment of Patient
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+@permission_classes([IsAuthenticated])
 def createPreassessment(request):
-    user_id = request.user.id  # Get the authenticated doctor's ID
-    patient_id = request.query_params.get('patient_id')  # Get the patient ID from query params
-
-    print(f"Received POST request for patient_id: {patient_id}")
-
-    if not patient_id:
-        print("Error: Missing patient_id")
-        return Response({"status": "error", "message": "Patient ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+    user_id = request.user.id  # Get doctor ID
+    prescription_id = request.query_params.get('prescription_id')  # Get prescription ID (optional)
 
     try:
-        patient = Patient.objects.get(id=patient_id)
-        print(f"Found patient: {patient}")
+        prescription = None  # Default to None if no prescription ID is provided
+        patient = None  # Default patient to None
+
+        # If prescription_id is provided, try fetching it
+        if prescription_id:
+            try:
+                prescription = Prescription.objects.get(id=prescription_id)
+                patient = prescription.patient  # Get the patient from the prescription
+            except Prescription.DoesNotExist:
+                return Response({"status": "error", "message": "Prescription not found."},
+                                status=status.HTTP_404_NOT_FOUND)
+
+        # If no prescription, expect a patient ID in request body
+        if not prescription:
+            patient_id = request.query_params.get('patient_id')
+            if not patient_id:
+                return Response({"status": "error", "message": "Either Prescription ID or Patient ID is required."},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                patient = Patient.objects.get(id=patient_id)
+            except Patient.DoesNotExist:
+                return Response({"status": "error", "message": "Patient not found."},
+                                status=status.HTTP_404_NOT_FOUND)
 
         data = request.data.copy()
         data.pop('patient', None)
         data.pop('doctor', None)
+
         serializer = PreassessmentSerializer(data=data)
 
         if serializer.is_valid():
-            serializer.save(patient=patient, doctor=request.user)
-            print("Preassessment created successfully!")
+            pre_assessment = serializer.save(
+                prescription=prescription,  # Link if available, else None
+                patient=patient,  # Assign patient
+                doctor=request.user  # Assign doctor
+            )
             return Response({
                 "status": "success",
                 "data": serializer.data
             }, status=status.HTTP_201_CREATED)
 
         else:
-            print(f"Validation errors: {serializer.errors}")
-            return Response({
-                "status": "error",
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    except User.DoesNotExist:
-        print("Error: User not found")
-        return Response({"status": "error", "message": "Doctor or Patient not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"status": "error", "errors": serializer.errors},
+                            status=status.HTTP_400_BAD_REQUEST)
 
     except Exception as e:
-        print(f"Unexpected Error: {str(e)}")
-        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({"status": "error", "message": str(e)},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # DELETE: Remove Pre-assessment of Patient
 @api_view(['DELETE'])
@@ -671,6 +726,8 @@ class ChatbotAPIView(APIView):
             # ✅ Fetch Prescription, Patient, and Medications in ONE Query (Synchronous ORM)
             prescription_id = request.query_params.get("prescription_id")
             prescription = Prescription.objects.select_related("patient").prefetch_related("prescriptionitem_set").get(id=prescription_id)
+            preassessment = PreAssessment.objects.filter(prescription=prescription).first()
+            print(preassessment)
             patient = prescription.patient
             items = list(prescription.prescriptionitem_set.all())  # Convert QuerySet to list for faster access
         except Prescription.DoesNotExist:
