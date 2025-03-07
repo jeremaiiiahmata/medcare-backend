@@ -5,6 +5,7 @@ from api.models import User, Profile, Patient, Prescription, PreAssessment, Pres
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, AuthUser
 from rest_framework import serializers
+from api.models import Patient
 
 class UserSerializer(serializers.ModelSerializer):
 
@@ -75,6 +76,7 @@ class PatientSerializer(serializers.ModelSerializer): #Serializer for Patient, e
         fields = ['id', 'doctor', 'first_name', 'middle_name', 'last_name', 'blood_type', 'email', 'contact_number',
                   'street_name', 'city', 'state_province', 'postal_code', 'age', 'weight', 'gender', 'id_number', 'allergies', 'date_created',
                   'time_created']
+
 
 class PrescriptionItemSerializer(serializers.ModelSerializer): #Serializer for Patient, eto yung mga nasa JSON. MUST MATCH DIN SA POST IN REACT
 

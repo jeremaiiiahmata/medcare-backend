@@ -23,7 +23,6 @@ from django.core.cache import cache  # Caching for faster responses
 import logging
 import hashlib
 
-
 # ✅ Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -154,6 +153,10 @@ class DashboardView(APIView):
         # Count occurrences & get top 3
         top_3_prescribed = [drug for drug, count in Counter(prescribed_drugs).most_common(3)]
 
+        #Doctor
+        doctor = User.objects.get(id=doctor_id)
+        greeting = f"Hello, {doctor.username}"
+
         # Structure the response
         data = {
             "total_patients": {"count": total_patients, "growth": patient_growth},
@@ -171,6 +174,7 @@ class DashboardView(APIView):
             "top_diagnosed_conditions": top_diagnosed_conditions,
             "prescription_completion_rate": prescription_completion_rate,
             "top_3_prescribed_medications": top_3_prescribed,
+            "greeting": greeting
         }
 
         return Response(data)
@@ -233,6 +237,7 @@ def createPatient(request):
     except User.DoesNotExist:
         return Response({"status": "error", "message": "Doctor not found."}, status=status.HTTP_404_NOT_FOUND)
 
+
 # GET: Query Patients by Doctor
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
@@ -269,7 +274,7 @@ def getPatients(request):
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-# Patients
+# Patients by ID
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
 def getPatientsByID(request, id):
@@ -281,6 +286,30 @@ def getPatientsByID(request, id):
 
     serializer = PatientSerializer(patient)
     return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+# EDIT: Remove Prescription Items of Patient
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])  # Ensure only authenticated users can access
+def editPatient(request):
+
+    patient_id = request.query_params.get("patient_id")
+
+
+    patient = get_object_or_404(Patient, id=patient_id)
+    serializer = PatientSerializer(patient, data=request.data, partial=True)
+
+    try :
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"status": "success", "data": serializer.data}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"status": "error", "message": f"An unexpected error occurred: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 
 # DELETE: Remove Prescription Items of Patient
 @api_view(['DELETE'])
@@ -746,6 +775,23 @@ class ChatbotAPIView(APIView):
             for item in items
         }
 
+        # Extract Patient's Assessments
+        assessments = None
+        if preassessment:
+            assessments = {
+                "blood_pressure": preassessment.blood_pressure,
+                "heart_rate": preassessment.heart_rate,
+                "temperature": preassessment.temperature,
+                "chronic_conditions": preassessment.chronic_conditions,
+                "medical_history": preassessment.medical_history,
+                "smoking_history": preassessment.smoking_history,
+                "alcohol_consumption_history": preassessment.alcohol_consumption_history,
+                "complaint": preassessment.complaint
+            }
+
+        print(f"This is the assessment {assessments}")
+
+
         # ✅ Generate a hash for the prescription to ensure uniform responses
         prescription_str = str(sorted(prescribed_medications.items()))
         prescription_hash = hashlib.sha256(prescription_str.encode()).hexdigest()
@@ -783,11 +829,26 @@ class ChatbotAPIView(APIView):
                **Instructions:**
                 - Help the doctor detect **ALL potential drug-drug interactions**, including **previously detected ones**.
                 - Recommend **dosage adjustments** only if necessary, ensuring recommendations follow standard dosages.
-                 - Ensure dosage recommendations align with **verified market dosages**, using this dataset: {available_dosages}.
+                - Ensure dosage recommendations align with **verified market dosages**, using this dataset: {available_dosages}.
                 - If no market dosage is found, attempt to determine a safe alternative.
                 - If a drug is missing from the known interactions database, use online sources to analyze its interactions.
+                - You can use the assessment data to make any changes or consideration in dosage and drugs prescribed.
+                - For the reason in dosage recommendations, state the reason WHY (does it have the wrong dosage or is the frequency wrong?) don't include anything market related in the reason part.
 
                **Patient Info:** Age: {patient_info["age"]}, Weight: {patient_info["weight"]}, Allergens: {patient_info["allergies"]}
+               
+                **Patient's Assessment:** {"No assessment data available." if not assessments else 
+                   f"Heart Rate: {assessments.get('heart_rate', 'N/A')}, " +
+                   f"Temperature: {assessments.get('temperature', 'N/A')}, " +
+                   f"Blood Pressure: {assessments.get('blood_pressure', 'N/A')}, " +
+                   f"Medical History: {assessments.get('medical_history', 'N/A')}, " +
+                   f"Chronic Conditions: {assessments.get('chronic_conditions', 'N/A')}, " +
+                   f"Smoking History: {assessments.get('smoking_history', 'N/A')}, " +
+                   f"Alcohol Consumption History: {assessments.get('alcohol_consumption_history', 'N/A')}, " +
+                   f"Complaint: {assessments.get('complaint', 'N/A')}"
+                }
+
+                
 
                **Medications:** {', '.join([f"{med} ({data['dosage']})" for med, data in prescribed_medications.items()])}
 
@@ -801,15 +862,16 @@ class ChatbotAPIView(APIView):
                 - List drug interactions **with medical explanations**.
                 - Suggest dosage adjustments only if the prescribed dose **is outside the normal range**.
                 - **DO NOT** introduce randomness—ensure that identical prescriptions receive **identical responses**.
-                - **Strictly follow predefined dosage recommendations** (if available).
+                - **Strictly follow predefined dosage recommendations** (if not provided from the database, use external reliable sources).
+                - Also, use external sources to check for the frequency of the medicine. Make sure it does not overdose the patient.
                 - If severity is `"None"`, **omit it from the response**.
-                - If a drug is missing from the database, use external sources to check its interactions.
+                - If a drug is missing from the database, use external reliable sources to check its interactions.
                 - Output in **structured JSON format** only.
 
                **STRICTLY FOLLOW THIS JSON FORMAT:**
                {{
                    "interactions": [{{"drug_a": "", "drug_b": "", "severity": "", "description": "", "management": ""}}],
-                   "dosage_adjustments": [{{"drug": "", "current": "", "recommended": "", "reason": ""}}],
+                   "dosage_adjustments": [{{"drug": "", "current": "", "recommended": "",  "reason": ""}}],
                    "final_recommendation": ""
                }}
                """
@@ -850,3 +912,4 @@ class ChatbotAPIView(APIView):
         )
         logger.info(f"GPT-4 response generated. Token usage: {len(response.choices[0].message.content.split())} words.")
         return response.choices[0].message.content
+

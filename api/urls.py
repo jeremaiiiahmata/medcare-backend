@@ -18,6 +18,7 @@ urlpatterns = [
     path('patients', views.getPatients), #returns the patients of doctor
     path('patients/<int:id>', views.getPatientsByID), # returns the patient by ID
     path('create-patient', views.createPatient), # creates patients
+    path('patient/edit', views.editPatient),
     path('patient/delete', views.deletePatient),
 
     #Prescriptions
