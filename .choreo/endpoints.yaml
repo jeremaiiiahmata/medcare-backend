@@ -1,11 +1,9 @@
-schemaVersion: "1.1"
+version: 1.0.0
+
 endpoints:
-    - name: medcare-api-be2
-      displayName: MEDCARE API
-      service:
-        basePath: /
-        port: 8000
-      type: REST
-      networkVisibilities:
-        - Project
-        - Public
+  - name: my-backend-service
+    type: REST
+    port: 8000
+    context: /api
+    method: GET
+    public: true
