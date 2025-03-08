@@ -4,6 +4,6 @@ endpoints:
   - name: my-backend-service
     type: REST
     port: 8000
-    context: /api
+    context: /
     method: GET
     public: true
