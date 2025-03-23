@@ -22,20 +22,174 @@ from django.db.models import Q
 from django.core.cache import cache  # Caching for faster responses
 import logging
 import hashlib
+import random
+import smtplib
+from django.conf import settings
+from django.core.mail import send_mail
+from rest_framework.response import Response
+from rest_framework import status, generics
+from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from django.utils.timezone import now
+from datetime import timedelta
+from .models import User
+from .serializers import RegisterSerializer
+
 
 # ✅ Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Store OTPs temporarily
+OTP_EXPIRATION_TIME = timedelta(minutes=5)
+otp_storage = {}  # Example: { "user@example.com": { "otp": "123456", "expires_at": timestamp } }
+
 # Create your views here.
 
 class MyTokenObtainPairView(TokenObtainPairView):
-    serializer_class = MyTokenObtainPairSerializer #sets the serializer class to the MyTokenObtainPairSerializer we created
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            return Response({"error": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = serializer.user
+
+        # 🔹 Step 1: Check if 2FA is enabled
+        if user.is_2fa_enabled:
+            otp = request.data.get("otp")  # 🔥 OTP sent from frontend
+
+            # 🔹 Step 2: If no OTP is provided, ask for it
+            if not otp:
+                return Response(
+                    {"otp_required": True, "message": "OTP has been sent to your email."},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # 🔹 Step 3: Validate OTP
+            if not user.verify_otp(otp):
+                return Response(
+                    {"error": "Invalid OTP. Please try again."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # 🔹 Step 4: Generate and return JWT tokens
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 class RegisterView(generics.CreateAPIView): #creates a user
     queryset = User.objects.all()
     permission_classes = (AllowAny,) #Allows everyone to access this view
     serializer_class = RegisterSerializer #sets the serializer class to the RegisterSerializer we created
+
+class RequestOTPView(generics.GenericAPIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        user = authenticate(email=email, password=password)
+        if not user:
+            return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # 🔹 Use the generate_otp() method in the User model
+        otp = user.generate_otp()
+
+        # Send OTP via email
+        send_mail(
+            "Your OTP Code",
+            f"Your OTP code is {otp}. It will expire in 5 minutes.",
+            settings.DEFAULT_FROM_EMAIL,
+            [email],
+            fail_silently=False,
+        )
+
+        return Response({"message": "OTP sent to your email"}, status=status.HTTP_200_OK)
+
+
+class VerifyOTPView(generics.GenericAPIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+
+        print(f"🔍 Received email: {email}, OTP: {otp}")  # Debugging
+
+        try:
+            user = User.objects.get(email=email)
+            print(f"🔍 Found user: {user.email}, Stored OTP: {user.otp}")  # Debugging
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.verify_otp(str(otp)):  # Ensure OTP is treated as a string
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+            }, status=status.HTTP_200_OK)
+
+        return Response({"error": "Invalid or expired OTP"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+def login_view(request):
+    email = request.data.get("email")
+    password = request.data.get("password")
+    user = authenticate(email=email, password=password)
+
+    if user is None:
+        return Response({"detail": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # If 2FA is enabled, send OTP instead of issuing JWT tokens
+    if user.is_2fa_enabled:
+        otp = user.generate_otp()
+
+        # Send OTP via email (Modify for SMS if needed)
+        send_mail(
+            "Your OTP Code",
+            f"Your OTP code is {otp}. It will expire in 5 minutes.",
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=False,
+        )
+
+        return Response({
+            "detail": "2FA required. OTP has been sent to your email.",
+            "otp_required": True
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Issue JWT tokens if 2FA is NOT enabled
+    refresh = RefreshToken.for_user(user)
+    return Response({
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    })
+
+@api_view(["POST"])
+def verify_otp(request):
+    email = request.data.get("email")  # Fix: Ensure email is received
+    otp_code = request.data.get("otp")
+
+    try:
+        user = User.objects.get(email=email)
+        if user.verify_otp(otp_code):
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+            })
+        return Response({"detail": "Invalid or expired OTP"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    except User.DoesNotExist:
+        return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    except User.DoesNotExist:
+        return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
 class DashboardView(APIView):
     permission_classes = [IsAuthenticated]

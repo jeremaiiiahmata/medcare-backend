@@ -2,15 +2,44 @@ from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.db.models.signals import post_save
+import random
+import string
+from django.utils.timezone import now, timedelta
 # Create your models here.
 
 
-class User (AbstractUser): #User model
+
+class User(AbstractUser):
     username = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
+    otp = models.CharField(max_length=6, blank=True, null=True)
+    otp_expires_at = models.DateTimeField(blank=True, null=True)
+    is_2fa_enabled = models.BooleanField(default=True)  # Enable 2FA for all users
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username']
+
+    def generate_otp(self):
+        """Generate a new OTP only if the old one is expired or missing."""
+        if self.otp and self.otp_expires_at and self.otp_expires_at > now():
+            print(f"🟢 Reusing existing OTP: {self.otp}")  # Debugging
+            return self.otp  # Don't regenerate if existing OTP is still valid
+
+        self.otp = f"{random.randint(100000, 999999)}"
+        self.otp_expires_at = now() + timedelta(minutes=5)
+        self.save()
+        print(f"🔄 New OTP Generated: {self.otp}")  # Debugging
+
+        return self.otp
+
+    def verify_otp(self, entered_otp):
+        """Verifies OTP and clears it after successful verification."""
+        if self.otp == entered_otp and self.otp_expires_at > now():
+            self.otp = None
+            self.otp_expires_at = None
+            self.save()
+            return True
+        return False
 
     def __str__(self):
         return self.username

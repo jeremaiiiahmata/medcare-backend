@@ -1,13 +1,16 @@
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.urls import path
 from . import views
+from .views import login_view, verify_otp, RequestOTPView, VerifyOTPView
 
 urlpatterns = [
     #use .as_view() for class based views
     #-- Authentication
-    path('token', views.MyTokenObtainPairView.as_view()), #Login
-    path('token/refresh', TokenRefreshView.as_view()), #refreshes the token
-    path('register', views.RegisterView.as_view()), #registers the user
+    path("token", login_view, name="token_obtain_pair"),  # Login with OTP support
+    path("token/refresh", TokenRefreshView.as_view(), name="token_refresh"),  # Refresh token
+    path("register", views.RegisterView.as_view(), name="register"),  # Register user
+    path("request-otp", RequestOTPView.as_view(), name="request_otp"),  # Request OTP
+    path("verify-otp", VerifyOTPView.as_view(), name="verify_otp"),  # Verify OTP
 
     #-- User-related
     path('dashboard', views.DashboardView.as_view()), #function-based views
