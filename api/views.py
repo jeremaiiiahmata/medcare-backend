@@ -155,7 +155,7 @@ def login_view(request):
             f"Your OTP code is {otp}. It will expire in 5 minutes.",
             settings.DEFAULT_FROM_EMAIL,
             [user.email],
-            fail_silently=False,
+            fail_silently=False,    
         )
 
         return Response({
