@@ -1,9 +1,0 @@
-version: 1.0.0
-
-endpoints:
-  - name: my-backend-service
-    type: REST
-    port: 8000
-    context: /
-    method: GET
-    public: true
